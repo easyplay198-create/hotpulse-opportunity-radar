@@ -1,0 +1,12 @@
+﻿node_modules/
+dist/
+.env
+.env.local
+server/.env
+client/.env
+server/node_modules/
+client/node_modules/
+server/package-lock.json.bak
+client/package-lock.json.bak
+npm-debug.log*
+.DS_Store

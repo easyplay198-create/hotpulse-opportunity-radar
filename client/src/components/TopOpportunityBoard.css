@@ -1,0 +1,141 @@
+.top-opp-board {
+  border: 1px solid #dbe6f6;
+  border-radius: 16px;
+  padding: 20px 24px;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+  box-shadow: 0 1px 2px rgba(26, 29, 35, 0.03);
+}
+
+.top-opp-board__header {
+  margin-bottom: 14px;
+}
+
+.top-opp-board__eyebrow {
+  margin: 0 0 4px;
+  color: #244b86;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.top-opp-board h2,
+.top-opp-board h3,
+.top-opp-board p {
+  margin-top: 0;
+}
+
+.top-opp-board h2 {
+  margin-bottom: 6px;
+  font-size: 1.2rem;
+  color: #10203d;
+}
+
+.top-opp-board__header p:last-child {
+  margin-bottom: 0;
+  color: #667085;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.top-opp-board__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.top-opp-board__card {
+  border: 1px solid #e4e7ec;
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+}
+
+.top-opp-board__card--featured {
+  border-color: #bcd3f4;
+  box-shadow: 0 1px 3px rgba(36, 75, 134, 0.08);
+}
+
+.top-opp-board__topRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.top-opp-board__rank,
+.top-opp-board__status,
+.top-opp-board__score,
+.top-opp-board__source {
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.top-opp-board__rank {
+  background: #edf3fb;
+  color: #244b86;
+}
+
+.top-opp-board__status--high {
+  background: #ecfdf3;
+  color: #166534;
+}
+
+.top-opp-board__status--medium {
+  background: #fff7ed;
+  color: #b45309;
+}
+
+.top-opp-board__status--low {
+  background: #f2f4f7;
+  color: #667085;
+}
+
+.top-opp-board__score {
+  background: #f8fafc;
+  color: #475467;
+}
+
+.top-opp-board h3 {
+  margin-bottom: 6px;
+  font-size: 1rem;
+  color: #101828;
+}
+
+.top-opp-board__meta,
+.top-opp-board__why,
+.top-opp-board__source {
+  margin-bottom: 8px;
+  color: #475467;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.top-opp-board__source {
+  display: inline-flex;
+  background: #f8fafc;
+  color: #667085;
+}
+
+.top-opp-board__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: #2563eb;
+  color: #fff;
+  text-decoration: none;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+@media (max-width: 1100px) {
+  .top-opp-board__grid {
+    grid-template-columns: 1fr;
+  }
+}

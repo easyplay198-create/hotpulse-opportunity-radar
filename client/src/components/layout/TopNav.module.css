@@ -1,0 +1,25 @@
+.nav {
+  padding: 32px 0 24px;
+  border-bottom: 1px solid #e2e5ea;
+  margin-bottom: 32px;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: #5c6370;
+  line-height: 1.5;
+}
+
+.hint {
+  margin: 8px 0 0;
+  font-size: 0.8125rem;
+  color: #8b919a;
+}

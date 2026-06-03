@@ -1,0 +1,92 @@
+[
+  {
+    "market": "Global",
+    "paymentFit": "medium",
+    "paymentRisk": 50,
+    "localizationRisk": 45,
+    "complianceRisk": 55,
+    "acquisitionRisk": 60,
+    "aiCostRisk": 50,
+    "entryNotes": [
+      "优先验证通用支付链路与退款流程",
+      "先用小样本渠道验证获客效率"
+    ],
+    "evidence": [
+      {
+        "title": "市场进入知识库：Global",
+        "url": "https://example.com/internal-market-knowledge",
+        "source": "HotPulse Market Knowledge",
+        "type": "industry_report",
+        "retrievedAt": "2026-06-02T00:00:00.000Z",
+        "evidenceStrength": "medium",
+        "metadata": { "knowledgeType": "static_market_entry" }
+      }
+    ]
+  },
+  {
+    "market": "US",
+    "paymentFit": "high",
+    "paymentRisk": 35,
+    "localizationRisk": 25,
+    "complianceRisk": 50,
+    "acquisitionRisk": 70,
+    "aiCostRisk": 45,
+    "entryNotes": ["支付基础设施成熟", "竞价流量成本高，需控制 CAC"],
+    "evidence": [{"title":"市场进入知识库：US","url":"https://example.com/internal-market-knowledge","source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
+  },
+  {
+    "market": "Japan",
+    "paymentFit": "medium",
+    "paymentRisk": 45,
+    "localizationRisk": 75,
+    "complianceRisk": 55,
+    "acquisitionRisk": 70,
+    "aiCostRisk": 40,
+    "entryNotes": ["日语 UX 与客服本地化要求较高", "订阅市场成熟但获客成本偏高"],
+    "evidence": [{"title":"市场进入知识库：Japan","url":"https://example.com/internal-market-knowledge","source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
+  },
+  {
+    "market": "Indonesia",
+    "paymentFit": "medium",
+    "paymentRisk": 55,
+    "localizationRisk": 60,
+    "complianceRisk": 50,
+    "acquisitionRisk": 58,
+    "aiCostRisk": 42,
+    "entryNotes": ["本地钱包与转账支付适配优先", "印尼语内容本地化影响转化"],
+    "evidence": [{"title":"市场进入知识库：Indonesia","url":"https://example.com/internal-market-knowledge","source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
+  },
+  {
+    "market": "Southeast Asia",
+    "paymentFit": "medium",
+    "paymentRisk": 62,
+    "localizationRisk": 58,
+    "complianceRisk": 52,
+    "acquisitionRisk": 63,
+    "aiCostRisk": 46,
+    "entryNotes": ["多国家支付与税务规则差异较大", "建议按国家分批进入"],
+    "evidence": [{"title":"市场进入知识库：Southeast Asia","url":"https://example.com/internal-market-knowledge","source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"low","metadata":{"knowledgeType":"static_market_entry"}}]
+  },
+  {
+    "market": "Latin America",
+    "paymentFit": "medium",
+    "paymentRisk": 60,
+    "localizationRisk": 50,
+    "complianceRisk": 54,
+    "acquisitionRisk": 66,
+    "aiCostRisk": 44,
+    "entryNotes": ["本地支付方式分散，需要区域化配置", "西语/葡语素材转化差异明显"],
+    "evidence": [{"title":"市场进入知识库：Latin America","url":"https://example.com/internal-market-knowledge","source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
+  },
+  {
+    "market": "Middle East",
+    "paymentFit": "low",
+    "paymentRisk": 68,
+    "localizationRisk": 48,
+    "complianceRisk": 65,
+    "acquisitionRisk": 62,
+    "aiCostRisk": 43,
+    "entryNotes": ["支付与内容合规前置评估必要", "文化语境适配影响留存"],
+    "evidence": [{"title":"市场进入知识库：Middle East","url":"https://example.com/internal-market-knowledge","source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"low","metadata":{"knowledgeType":"static_market_entry"}}]
+  }
+]

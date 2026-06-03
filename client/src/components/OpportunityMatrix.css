@@ -1,0 +1,303 @@
+.opp-matrix {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid #e4e7ec;
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: #fff;
+}
+
+.opp-matrix__headerRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.opp-matrix__title {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  color: #101828;
+}
+
+.opp-matrix__summary {
+  margin: 0;
+  color: #667085;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.opp-matrix__toggle {
+  border: 1px solid #d0d5dd;
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: #fff;
+  color: #344054;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.opp-matrix__body {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 10px;
+  align-items: stretch;
+}
+
+.opp-matrix__yAxis {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: center;
+  justify-items: center;
+  padding: 4px 0 26px;
+  font-size: 0.6875rem;
+  color: #8b919a;
+}
+
+.opp-matrix__yAxisTitle {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #5c6370;
+  letter-spacing: 0.04em;
+}
+
+.opp-matrix__yAxisEnd {
+  line-height: 1;
+}
+
+.opp-matrix__plotWrap {
+  min-width: 0;
+}
+
+.opp-matrix__hint {
+  margin: 0 0 8px;
+  font-size: 0.8125rem;
+  color: #344054;
+  line-height: 1.5;
+}
+
+.opp-matrix__statGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.opp-matrix__statCard {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #e4e7ec;
+  background: #f9fafb;
+  min-width: 92px;
+}
+
+.opp-matrix__statLabel {
+  font-size: 0.6875rem;
+  color: #667085;
+}
+
+.opp-matrix__statCard strong {
+  font-size: 0.9375rem;
+  color: #101828;
+}
+
+.opp-matrix__categorySummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.opp-matrix__categorySummary span {
+  border: 1px solid #dbe2ea;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #fff;
+  color: #475467;
+  font-size: 0.6875rem;
+}
+
+.opp-matrix__plot {
+  position: relative;
+  height: 260px;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  background: #fcfdff;
+  overflow: hidden;
+}
+
+.opp-matrix__quadrants {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.opp-matrix__quadrant {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #7b8494;
+  padding: 8px;
+  text-align: center;
+}
+
+.opp-matrix__note {
+  margin: 8px 0 0;
+  color: #667085;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.opp-matrix__quadrant--tl {
+  background: rgba(230, 244, 234, 0.72);
+  border-right: 1px solid rgba(216, 232, 216, 0.9);
+  border-bottom: 1px solid rgba(216, 232, 216, 0.9);
+}
+
+.opp-matrix__quadrant--tr {
+  background: rgba(238, 244, 251, 0.72);
+  border-bottom: 1px solid rgba(216, 232, 216, 0.9);
+}
+
+.opp-matrix__quadrant--bl {
+  background: rgba(247, 247, 248, 0.88);
+  border-right: 1px solid rgba(226, 229, 234, 0.9);
+}
+
+.opp-matrix__quadrant--br {
+  background: rgba(253, 243, 243, 0.8);
+}
+
+.opp-matrix__axis {
+  position: absolute;
+  background: #c8ccd4;
+  pointer-events: none;
+}
+
+.opp-matrix__axis--x {
+  left: 10%;
+  right: 10%;
+  top: 50%;
+  height: 1px;
+}
+
+.opp-matrix__axis--y {
+  top: 10%;
+  bottom: 10%;
+  left: 50%;
+  width: 1px;
+}
+
+.opp-matrix__dot {
+  position: absolute;
+  transform: translate(-50%, 50%);
+  z-index: 1;
+  max-width: 72px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid #5c8fd6;
+  background: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #10203d;
+  text-align: center;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 3px rgba(26, 29, 35, 0.08);
+}
+
+.opp-matrix__dot--ai-app { border-color: #60a5fa; color: #1d4ed8; background: #eff6ff; }
+.opp-matrix__dot--ai-tool { border-color: #a78bfa; color: #6d28d9; background: #f5f3ff; }
+.opp-matrix__dot--dev { border-color: #34d399; color: #047857; background: #ecfdf5; }
+.opp-matrix__dot--game { border-color: #fb923c; color: #c2410c; background: #fff7ed; }
+.opp-matrix__dot--productivity { border-color: #22d3ee; color: #0e7490; background: #ecfeff; }
+.opp-matrix__dot--commerce { border-color: #f472b6; color: #be185d; background: #fdf2f8; }
+.opp-matrix__dot--other { border-color: #cbd5e1; color: #475569; background: #f8fafc; }
+
+.opp-matrix__dot--ai-app {
+  border-color: #5b8def;
+  background: #edf4ff;
+  color: #1d4ed8;
+}
+
+.opp-matrix__dot--ai-tool {
+  border-color: #8b5cf6;
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+
+.opp-matrix__dot--dev {
+  border-color: #22c55e;
+  background: #ecfdf3;
+  color: #15803d;
+}
+
+.opp-matrix__dot--game {
+  border-color: #f59e0b;
+  background: #fff7ed;
+  color: #b45309;
+}
+
+.opp-matrix__dot--productivity {
+  border-color: #06b6d4;
+  background: #ecfeff;
+  color: #0e7490;
+}
+
+.opp-matrix__dot--commerce {
+  border-color: #fb7185;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.opp-matrix__dot--other {
+  border-color: #94a3b8;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.opp-matrix__xLabel {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #5c6370;
+  text-align: center;
+}
+
+.opp-matrix__empty {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #8b919a;
+}
+
+@media (max-width: 520px) {
+  .opp-matrix__headerRow,
+  .opp-matrix__body {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .opp-matrix__plot {
+    height: 220px;
+  }
+
+  .opp-matrix__quadrant {
+    font-size: 0.6875rem;
+  }
+
+  .opp-matrix__dot {
+    max-width: 52px;
+    font-size: 0.6rem;
+  }
+}

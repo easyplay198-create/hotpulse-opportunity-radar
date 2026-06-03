@@ -1,0 +1,145 @@
+.report-preview {
+  display: grid;
+  gap: 16px;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.report-preview__topbar {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.report-preview__backButton,
+.report-preview__copyButton {
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #fff;
+  color: #344054;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.report-preview__hero,
+.report-preview__card {
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px;
+}
+
+.report-preview__eyebrow {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  color: #667085;
+}
+
+.report-preview__title {
+  margin: 0 0 10px;
+  font-size: 1.4rem;
+  line-height: 1.3;
+}
+
+.report-preview__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 0.875rem;
+  color: #475467;
+  margin-bottom: 12px;
+}
+
+.report-preview__grid {
+  display: grid;
+  gap: 12px;
+}
+
+.report-preview__card h2 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+}
+
+.report-preview__list,
+.report-preview__facts {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.report-preview__listItem {
+  margin-bottom: 10px;
+}
+
+.report-preview__section {
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+  color: #344054;
+}
+
+.report-preview__card--note {
+  background: #f8fafc;
+  color: #475467;
+  font-size: 0.875rem;
+}
+
+.report-preview__card--wedge {
+  background: #f8fbff;
+}
+
+.report-preview__wedge {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #eaecf0;
+}
+
+.report-preview__wedgeTag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  background: #f2f4f7;
+  color: #344054;
+  margin-bottom: 8px;
+}
+
+.report-preview__wedgeSummary {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #344054;
+}
+
+.report-preview__bar {
+  height: 8px;
+  background: #eef2f6;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 6px 0 8px;
+}
+
+.report-preview__barFill {
+  height: 100%;
+  background: #3b82f6;
+}
+
+.report-preview__bulletList {
+  margin: 0;
+  padding-left: 18px;
+}
+
+@media (max-width: 640px) {
+  .report-preview {
+    padding: 12px;
+  }
+
+  .report-preview__meta {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .report-preview__hero,
+  .report-preview__card {
+    padding: 12px;
+  }
+}

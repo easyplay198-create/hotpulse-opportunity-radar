@@ -1,0 +1,145 @@
+.top-opps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.top-opp-card {
+  border: 1px solid #d7e4f4;
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 1px 2px rgba(26, 29, 35, 0.03);
+}
+
+.top-opp-card__head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.top-opp-card__rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #edf3fb;
+  font-size: 0.875rem;
+  font-weight: 800;
+  color: #244b86;
+}
+
+.top-opp-card__rank--top {
+  background: #dcebff;
+  color: #102d63;
+}
+
+.top-opp-card__decision {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.top-opp-card__decisionLabel {
+  font-size: 0.6875rem;
+  color: #8b919a;
+}
+
+.top-opp-card__verdict {
+  display: inline-flex;
+  align-self: flex-start;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.top-opp-card__verdict--do_now {
+  background: #e6f4ea;
+  color: #1e7e34;
+}
+
+.top-opp-card__verdict--watch {
+  background: #fff8e6;
+  color: #9a6700;
+}
+
+.top-opp-card__verdict--skip {
+  background: #fce8e8;
+  color: #c0392b;
+}
+
+.top-opp-card__score {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: #8b919a;
+}
+
+.top-opp-card__score strong {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #10203d;
+}
+
+.top-opp-card__title {
+  margin: 0 0 6px;
+  font-size: 0.875rem;
+  font-weight: 650;
+  line-height: 1.45;
+  color: #10203d;
+}
+
+.top-opp-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 0.75rem;
+  color: #5c6370;
+}
+
+.top-opp-card__priorityReason {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #f3f8ef;
+  border: 1px solid #dcead4;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: #1e7e34;
+}
+
+.top-opp-card__focus {
+  margin: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #1a1d23;
+}
+
+.top-opp-card__focus::before {
+  content: '建议验证点';
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #edf3fb;
+  color: #244b86;
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+@media (max-width: 960px) {
+  .top-opps {
+    grid-template-columns: 1fr;
+  }
+}
+
