@@ -22,16 +22,31 @@ export interface OpportunitiesResponse {
   };
 }
 
+const REAL_SOURCE_TIMEOUT_MS = 70_000;
+const DEFAULT_TIMEOUT_MS = 20_000;
+
 function getApiBase() {
   const base = import.meta.env.VITE_API_BASE?.trim();
   if (!base) return '';
   return base.replace(/\/$/, '');
 }
 
+async function fetchWithTimeout(url: string, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export async function fetchOpportunities(source?: 'hn' | 'real'): Promise<OpportunitiesResponse> {
   const query = source === 'hn' ? '?source=hn' : source === 'real' ? '?source=real' : '';
   const base = getApiBase();
-  const response = await fetch(`${base}/api/opportunities${query}`);
+  const timeoutMs = source === 'real' ? REAL_SOURCE_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+  const response = await fetchWithTimeout(`${base}/api/opportunities${query}`, timeoutMs);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch opportunities: ${response.status}`);

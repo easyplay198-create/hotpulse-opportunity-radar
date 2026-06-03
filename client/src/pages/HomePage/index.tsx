@@ -16,7 +16,8 @@ import { buildDailyIntelligenceBrief } from '../../lib/buildDailyIntelligenceBri
 import type { HotItem, HotPlatform, ProviderStats } from '../../types/hot';
 import styles from './HomePage.module.css';
 
-type DataSource = 'mock' | 'real' | 'fallback';
+type SettledDataSource = 'mock' | 'real' | 'fallback';
+type DataSource = 'connecting' | SettledDataSource;
 
 interface HotspotSummary {
   totalCount: number;
@@ -34,7 +35,7 @@ interface DistributionItem {
 
 interface SourceStatusCopy {
   label: string;
-  tone: 'real' | 'mock' | 'fallback';
+  tone: 'real' | 'mock' | 'fallback' | 'connecting';
   description: string;
   countSuffix: string;
 }
@@ -53,6 +54,15 @@ function buildHotspotSummary(items: HotItem[]): HotspotSummary {
 }
 
 function buildSourceStatusCopy(dataSource: DataSource): SourceStatusCopy {
+  if (dataSource === 'connecting') {
+    return {
+      label: '连接中',
+      tone: 'connecting',
+      description: '正在连接真实数据源，首次访问可能需要 30-60 秒。',
+      countSuffix: '正在唤醒真实数据服务',
+    };
+  }
+
   if (dataSource === 'real') {
     return {
       label: 'real',
@@ -113,12 +123,16 @@ function DistributionBars({ title, items, barClassName }: DistributionBarsProps)
   );
 }
 
-function LoadingPreview() {
+function LoadingPreview({ isRealSource }: { isRealSource?: boolean }) {
   return (
     <section className={styles.stateCard} aria-label="加载市场机会数据">
-      <p className={styles.stateEyebrow}>数据加载中</p>
-      <h2 className={styles.stateTitle}>正在加载市场机会数据...</h2>
-      <p className={styles.stateDescription}>正在整理机会分、进入建议和风险维度。</p>
+      <p className={styles.stateEyebrow}>{isRealSource ? '真实数据连接中' : '数据加载中'}</p>
+      <h2 className={styles.stateTitle}>{isRealSource ? '正在连接真实数据源...' : '正在加载市场机会数据...'}</h2>
+      <p className={styles.stateDescription}>
+        {isRealSource
+          ? '正在唤醒真实数据服务。免费预览环境首次访问可能需要 30-60 秒。'
+          : '正在整理机会分、进入建议和风险维度。'}
+      </p>
       <div className={styles.skeletonGrid} aria-hidden="true">
         <span className={styles.skeletonBlock} />
         <span className={styles.skeletonBlock} />
@@ -153,7 +167,7 @@ export function HomePage() {
   const [items, setItems] = useState<HotItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
-  const [dataSource, setDataSource] = useState<DataSource>('mock');
+  const [dataSource, setDataSource] = useState<DataSource>(apiSource === 'real' ? 'connecting' : 'mock');
   const [providerStats, setProviderStats] = useState<ProviderStats | undefined>(undefined);
 
   const summary = useMemo(() => buildHotspotSummary(items), [items]);
@@ -161,9 +175,10 @@ export function HomePage() {
     () => buildDiscoverableOpportunities(items),
     [items],
   );
+  const resolvedDataSource: SettledDataSource = dataSource === 'connecting' ? 'real' : dataSource;
   const dailyIntelligenceBrief = useMemo(
-    () => buildDailyIntelligenceBrief({ items, dataSource, discoverableOpportunities }),
-    [items, dataSource, discoverableOpportunities],
+    () => buildDailyIntelligenceBrief({ items, dataSource: resolvedDataSource, discoverableOpportunities }),
+    [items, resolvedDataSource, discoverableOpportunities],
   );
   const topOpportunityBoardItems = useMemo(() => discoverableOpportunities.slice(0, 3), [discoverableOpportunities]);
   const sourceStatus = useMemo(() => buildSourceStatusCopy(dataSource), [dataSource]);
@@ -297,30 +312,30 @@ export function HomePage() {
             </div>
             <div className={styles.heroStat}>
               <span className={styles.heroStatLabel}>原始信号</span>
-              <span className={styles.heroStatValue}>{summary.totalCount} 条</span>
+              <span className={styles.heroStatValue}>{loading && apiSource === 'real' ? '加载中' : `${summary.totalCount} 条`}</span>
               <span className={styles.heroStatHint}>{sourceStatus.countSuffix}</span>
             </div>
             <div className={styles.heroStat}>
               <span className={styles.heroStatLabel}>可追溯机会</span>
-              <span className={styles.heroStatValue}>{discoverableOpportunities.length} 条</span>
+              <span className={styles.heroStatValue}>{loading && apiSource === 'real' ? '加载中' : `${discoverableOpportunities.length} 条`}</span>
               <span className={styles.heroStatHint}>由当前信号转译生成</span>
             </div>
           </div>
         </section>
 
         {isLoadingPreview || loading ? (
-          <LoadingPreview />
+          <LoadingPreview isRealSource={apiSource === 'real'} />
         ) : isErrorPreview || hasError ? (
           <ErrorPreview />
         ) : (
           <>
-            <DataSourceStatusPanel mode={dataSource} totalCount={summary.totalCount} providerStats={providerStats} />
+            <DataSourceStatusPanel mode={resolvedDataSource} totalCount={summary.totalCount} providerStats={providerStats} />
 
-            <TopOpportunityBoard opportunities={topOpportunityBoardItems} dataSource={dataSource} />
+            <TopOpportunityBoard opportunities={topOpportunityBoardItems} dataSource={resolvedDataSource} />
 
             <DailyIntelligenceBrief
               brief={dailyIntelligenceBrief}
-              dataSource={dataSource}
+              dataSource={resolvedDataSource}
               rawSignalCount={summary.totalCount}
               discoverableOpportunityCount={discoverableOpportunities.length}
             />
@@ -329,7 +344,7 @@ export function HomePage() {
               <OpportunityAdvisorPanel
                 items={items}
                 smallTeamOpportunities={[]}
-                source={dataSource}
+                source={resolvedDataSource}
               />
             </section>
 
@@ -386,7 +401,7 @@ export function HomePage() {
               <p className={styles.sectionHint}>
                 从当前信号中提炼正在出现的市场痛点、切入缺口和验证假设。当前可追溯机会：{discoverableOpportunities.length} 条，{sourceStatus.countSuffix}。
               </p>
-              <DiscoverableOpportunityList opportunities={discoverableOpportunities} source={dataSource} />
+              <DiscoverableOpportunityList opportunities={discoverableOpportunities} source={resolvedDataSource} />
             </section>
 
             <section className={styles.listSection} aria-label="市场信号榜">
