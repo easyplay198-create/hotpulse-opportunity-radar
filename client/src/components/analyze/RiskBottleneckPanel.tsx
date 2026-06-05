@@ -22,10 +22,10 @@ export function RiskBottleneckPanel({ items }: { items?: RiskBottleneck[] }) {
               <strong>{item.title}</strong>
               <span>{item.level}</span>
             </div>
-            <p style={{ margin: '6px 0 0', color: '#9a3412' }}><strong>为什么：</strong>{item.why}</p>
-            <p style={{ margin: '4px 0 0', color: '#9a3412' }}><strong>影响：</strong>{item.impact}</p>
-            <p style={{ margin: '4px 0 0', color: '#9a3412' }}><strong>低成本验证：</strong>{item.validationAction}</p>
-            <p style={{ margin: '4px 0 0', color: '#9a3412' }}><strong>动作判断：</strong>{item.stopOrAdjust}</p>
+            <p style={{ margin: '6px 0 0', color: '#9a3412', lineHeight: 1.5 }}><strong>为什么：</strong>{item.why}</p>
+            <p style={{ margin: '4px 0 0', color: '#9a3412', lineHeight: 1.5 }}><strong>影响：</strong>{item.impact}</p>
+            <p style={{ margin: '4px 0 0', color: '#9a3412', lineHeight: 1.5 }}><strong>低成本验证：</strong>{item.validationAction}</p>
+            <p style={{ margin: '4px 0 0', color: '#9a3412', lineHeight: 1.5 }}><strong>动作判断：</strong>{item.stopOrAdjust}</p>
           </article>
         ))}
       </div>

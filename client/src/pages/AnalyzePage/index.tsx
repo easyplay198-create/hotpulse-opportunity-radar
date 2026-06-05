@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { analyzeOpportunity } from '../../api/analyzeOpportunity';
 import { AppShell } from '../../components/layout/AppShell';
 import { TopNav } from '../../components/layout/TopNav';
@@ -8,11 +8,13 @@ import { AnalyzeProgressPanel } from '../../components/analyze/AnalyzeProgressPa
 import { AnalyzeResultSummary } from '../../components/analyze/AnalyzeResultSummary';
 import { AnalyzeWorkbench } from '../../components/analyze/AnalyzeWorkbench';
 import { AnalysisTracePanel } from '../../components/analyze/AnalysisTracePanel';
+import { ClarifyingQuestionsPanel } from '../../components/analyze/ClarifyingQuestionsPanel';
 import { EvidenceBoard } from '../../components/analyze/EvidenceBoard';
+import { MvpValidationPlanPanel } from '../../components/analyze/MvpValidationPlanPanel';
 import { ProjectEvaluationPanel } from '../../components/analyze/ProjectEvaluationPanel';
 import { ProjectUnderstandingPanel } from '../../components/analyze/ProjectUnderstandingPanel';
 import { RiskBottleneckPanel } from '../../components/analyze/RiskBottleneckPanel';
-import { MvpValidationPlanPanel } from '../../components/analyze/MvpValidationPlanPanel';
+import { WeakReferencePanel } from '../../components/analyze/WeakReferencePanel';
 import type { AnalyzeProfile, AnalyzeResponse } from '../../types/analyze';
 import styles from './AnalyzePage.module.css';
 
@@ -23,6 +25,35 @@ function getSource(): 'real' | 'mock' | 'fallback' {
   const source = new URLSearchParams(window.location.search).get('source');
   if (source === 'real' || source === 'fallback') return source;
   return 'mock';
+}
+
+function normalizeViewResult(result: AnalyzeResponse | null): AnalyzeResponse | null {
+  if (!result) return null;
+  return {
+    ...result,
+    matchedSignals: Array.isArray(result.matchedSignals) ? result.matchedSignals : [],
+    matchedOpportunities: Array.isArray(result.matchedOpportunities) ? result.matchedOpportunities : [],
+    clarifyingQuestions: Array.isArray(result.clarifyingQuestions) ? result.clarifyingQuestions : [],
+    evidenceGaps: Array.isArray(result.evidenceGaps) ? result.evidenceGaps : [],
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
+    projectEvaluation: Array.isArray(result.projectEvaluation) ? result.projectEvaluation : [],
+    riskBottlenecks: Array.isArray(result.riskBottlenecks) ? result.riskBottlenecks : [],
+    mvpValidationPlan: Array.isArray(result.mvpValidationPlan) ? result.mvpValidationPlan : [],
+    analysisTrace: Array.isArray(result.analysisTrace) ? result.analysisTrace : [],
+    evidenceBoard: Array.isArray(result.evidenceBoard) ? result.evidenceBoard : [],
+    relevanceScores: result.relevanceScores || { topSignalScores: [], rejectedSignals: [] },
+    riskMatrix: Array.isArray(result.riskMatrix) ? result.riskMatrix : [],
+    sevenDayPlan: Array.isArray(result.sevenDayPlan) ? result.sevenDayPlan : [],
+    recommendation: result.recommendation || {
+      title: '当前缺少足够相关信号，建议先做小样本验证',
+      verdict: '持续观察',
+      matchScore: 0,
+      targetMarket: '未明确',
+      evidenceStrength: 'low',
+      summary: '当前结果缺少足够信息。',
+      nextStep: '请继续补充输入后重试。',
+    },
+  };
 }
 
 export function AnalyzePage() {
@@ -63,10 +94,10 @@ export function AnalyzePage() {
     try {
       const response = await analyzeOpportunity({ query: normalizedQuery, source, profile });
       setSource(response.source);
-      setResult(response);
+      setResult(normalizeViewResult(response));
       setActiveStep(5);
-    } catch (apiError) {
-      setError(apiError instanceof Error ? apiError.message : '分析服务暂时不可用');
+    } catch {
+      setError('分析服务暂时不可用，请稍后重试或查看当前市场信号。');
     } finally {
       setAnalyzing(false);
     }
@@ -80,6 +111,9 @@ export function AnalyzePage() {
     window.sessionStorage.removeItem(ANALYZE_QUERY_KEY);
   };
 
+  const viewResult = useMemo(() => normalizeViewResult(result), [result]);
+  const hasStrongMatches = (viewResult?.matchedOpportunities?.length ?? 0) > 0;
+
   return (
     <AppShell>
       <div className={styles.page}>
@@ -87,7 +121,7 @@ export function AnalyzePage() {
         <AnalyzeWorkbench query={query} source={source} analyzing={analyzing} onQueryChange={setQuery} onSubmit={runAnalyze} onReset={resetAll} />
         <AnalyzeAdvancedOptions profile={profile} onChange={setProfile} />
 
-        {(analyzing || result) ? <AnalyzeProgressPanel activeIndex={activeStep} done={Boolean(result)} steps={result?.steps} /> : null}
+        {(analyzing || viewResult) ? <AnalyzeProgressPanel activeIndex={activeStep} done={Boolean(viewResult)} steps={viewResult?.steps} /> : null}
 
         {error ? (
           <section className={styles.errorCard}>
@@ -100,23 +134,31 @@ export function AnalyzePage() {
           </section>
         ) : null}
 
-        {result ? (
-          <div className={styles.validationGrid}>
-            <div className={styles.validationMainCol}>
-              <ProjectUnderstandingPanel understanding={result.projectUnderstanding} />
-              <ProjectEvaluationPanel items={result.projectEvaluation} />
-              <RiskBottleneckPanel items={result.riskBottlenecks} />
-              <MvpValidationPlanPanel steps={result.mvpValidationPlan} fallback={result.sevenDayPlan} />
+        {viewResult ? (
+          <div className={styles.resultLayout}>
+            <div className={styles.resultMainCol}>
+              <ProjectUnderstandingPanel understanding={viewResult.projectUnderstanding} />
+              <ProjectEvaluationPanel items={viewResult.projectEvaluation} />
+              <RiskBottleneckPanel items={viewResult.riskBottlenecks} />
+              <MvpValidationPlanPanel steps={viewResult.mvpValidationPlan} fallback={viewResult.sevenDayPlan} />
+              {viewResult.clarifyingQuestions?.length ? <ClarifyingQuestionsPanel questions={viewResult.clarifyingQuestions} /> : null}
+              <AnalyzeResultSummary result={viewResult} source={source} onReset={resetAll} onRetry={runAnalyze} />
             </div>
-            <div className={styles.validationSideCol}>
-              <AnalysisTracePanel analysisTrace={result.analysisTrace} rejectedCount={result.relevanceScores?.rejectedSignals?.length ?? 0} />
-              <EvidenceBoard items={result.evidenceBoard} source={source} />
+            <div className={styles.resultSideCol}>
+              <AnalysisTracePanel analysisTrace={viewResult.analysisTrace} rejectedCount={viewResult.relevanceScores?.rejectedSignals?.length ?? 0} />
+              <EvidenceBoard items={viewResult.evidenceBoard} source={source} />
+              <WeakReferencePanel result={viewResult} />
+              <AnalyzeMatchedSignals result={viewResult} source={source} />
             </div>
           </div>
         ) : null}
 
-        {result ? <AnalyzeResultSummary result={result} source={source} onReset={resetAll} onRetry={runAnalyze} /> : null}
-        {result ? <AnalyzeMatchedSignals result={result} source={source} /> : null}
+        {viewResult && !hasStrongMatches ? (
+          <section className={styles.resultCard}>
+            <h2>当前没有找到足够相关的可追溯机会</h2>
+            <p>HotPulse 不建议基于无关信号做进入判断。</p>
+          </section>
+        ) : null}
       </div>
     </AppShell>
   );

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
 import { getMockOpportunities } from './sources/mockOpportunities.js';
@@ -442,12 +443,18 @@ function buildSevenDayPlanForIntent(intent) {
 function clarifyingQuestions() { return [{ id: 'target_market', text: '你想优先验证哪个市场？', options: ['日本', '台湾', '泰国', '东南亚', '欧美', '拉美', 'Global'] }, { id: 'product_shape', text: '产品更偏哪种形态？', options: ['工具型产品', '内容产品', '社交社区', '订阅服务', '开发者工具', 'AI 功能'] }, { id: 'business_model', text: '你计划怎么变现？', options: ['订阅会员', '一次性付费', '虚拟礼物', '增值功能', '广告', '暂不考虑变现'] }, { id: 'seed_channel', text: '是否已有种子用户渠道？', options: ['有社群', '有内容渠道', '有 B2B 客户', '有 KOL 合作', '暂无'] }, { id: 'main_risk', text: '你最担心哪个风险？', options: ['需求不真实', '获客成本高', '支付转化低', '本地化不足', '合规风险', '竞争太强'] }]; }
 function evidenceGapsForIntent(intent) { const gaps = ['缺少目标市场的直接用户需求信号', '缺少同类产品评论或下载趋势证据', '缺少目标用户付费意愿数据', '缺少低成本获客测试结果']; if (intent.productCategory.includes('社交')) gaps.push('缺少社区冷启动可行性证据', '缺少内容审核和用户安全成本评估'); if (intent.productCategory.includes('AI')) gaps.push('缺少留存和订阅转化证据', '缺少 AI 成本与付费能力匹配验证'); if (intent.productCategory.includes('开发者')) gaps.push('缺少工作流嵌入频率证据', '缺少开发者愿意付费的证据'); return gaps; }
 
-app.post('/api/analyze', async (req, res) => {
-  const body = req.body || {};
-  const query = typeof body.query === 'string' ? body.query.trim() : '';
-  const requestedSource = body.source === 'real' ? 'real' : body.source === 'fallback' ? 'fallback' : 'mock';
-  const profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
-  const loaded = await loadAnalyzeItems(requestedSource);
+function buildMvpValidationPlanObjects(sevenDayPlan) {
+  return sevenDayPlan.map((step, index) => ({
+    day: step.split('：')[0] || `Day ${index + 1}`,
+    goal: step.split('：')[1] || step,
+    action: step,
+    successMetric: index < 2 ? '完成可测试表达和首批反馈' : '获得可判断的注册、访谈或留资信号',
+    stopCondition: '如果目标用户无法理解价值或没有有效反馈，暂停扩大投入。',
+    requiredResource: index < 2 ? '1 个落地页 / demo 文案' : '小样本用户、访谈记录或低预算测试',
+  }));
+}
+
+function buildRuleAnalyzeResponse({ query, profile, source, loaded }) {
   const intent = parseQueryIntent(query, profile);
   const scored = matchAnalyzeItems(loaded.items, intent);
   const eligible = scored.filter((entry) => entry.relevance.finalRelevanceScore >= 45);
@@ -463,8 +470,10 @@ app.post('/api/analyze', async (req, res) => {
   } : {
     title: `${intent.targetMarket} · ${intent.productCategory} 验证建议`, verdict: topScore >= 80 ? '优先验证' : '持续观察', matchScore: topScore, targetMarket: intent.targetMarket, evidenceStrength: strongestEvidence(top) >= 3 ? 'high' : strongestEvidence(top) >= 2 ? 'medium' : 'low', summary: `当前最相关信号是「${top.title}」，建议只把它作为验证参考，不要直接当成市场结论。`, nextStep: sevenDayPlan[0], reportItemId: top.id
   };
-  res.json({
-    version: '2.0', analysisId: `analysis-${Date.now()}`, source: loaded.source, generatedAt: new Date().toISOString(),
+  const matchedSignals = eligible.slice(0, 3).map((entry) => ({ ...entry.item, relevanceScore: entry.relevance.finalRelevanceScore, relevanceLabel: entry.relevance.relevanceLabel }));
+  const warnings = loaded.source !== 'real' ? ['当前为 mock/fallback 数据，仅用于结构演示，不代表真实市场结论。'] : [];
+  return {
+    version: '2.1', analysisId: `analysis-${Date.now()}`, source: loaded.source, generatedAt: new Date().toISOString(),
     steps: [
       { id: 'parse', label: '解析产品方向', status: 'done', summary: `识别为 ${intent.productCategory}，目标市场 ${intent.targetMarket}` },
       { id: 'signals', label: '检索市场信号', status: 'done', summary: `从 ${loaded.items.length} 条当前信号中检索相关线索` },
@@ -473,12 +482,91 @@ app.post('/api/analyze', async (req, res) => {
       { id: 'plan', label: '生成验证方案', status: 'done', summary: '生成按输入方向定制的 7 天 MVP 验证动作' },
     ],
     parsedIntent: intent,
-    matchedSignals: eligible.slice(0, 3).map((entry) => ({ ...entry.item, relevanceScore: entry.relevance.finalRelevanceScore, relevanceLabel: entry.relevance.relevanceLabel })),
-    matchedOpportunities: strongMatches.slice(0, 3).map((entry) => ({ id: `matched-${entry.item.id}`, title: entry.item.title, sourceItemId: entry.item.id, fitScore: entry.relevance.finalRelevanceScore, reason: `${entry.relevance.relevanceLabel}：与 ${intent.productCategory} / ${intent.targetMarket} 的验证方向相关。`, firstStep: sevenDayPlan[0], riskWarning: `优先关注${riskItems.sort((a, b) => b.value - a.value)[0]?.label || '主要风险'}。` })),
+    projectUnderstanding: { productSummary: query, productCategory: intent.productCategory, targetAudience: intent.audience, targetMarket: intent.targetMarket, businessModel: intent.businessModel, knownConditions: [query].filter(Boolean), missingConditions: ['目标市场细分', '种子用户渠道', '付费方式', '可投入资源'], confidence: intent.confidence },
+    userConditions: { stage: profile.productStage || profile.stage || '未明确', budget: profile.budgetRange || profile.budget || '未明确', resources: Array.isArray(profile.assets) ? profile.assets : [], teamCapabilities: Array.isArray(profile.capabilities) ? profile.capabilities : [], constraints: Array.isArray(profile.avoidDirections) ? profile.avoidDirections : [] },
+    keyAssumptions: ['需求真实存在', '目标用户能理解价值', '可以低成本触达首批用户', '存在可接受的付费或留存路径'].map((statement, index) => ({ id: `assumption-${index + 1}`, type: ['demand', 'solution', 'acquisition', 'payment'][index], statement, criticality: index === 0 ? 'high' : 'medium', whyItMatters: '这是进入前必须验证的关键假设。' })),
+    analysisTrace: [
+      { step: '解析用户输入', status: 'completed', action: '提取产品类型、用户和市场', finding: `项目被理解为 ${intent.productCategory}`, uncertainty: intent.targetMarket === '未明确' ? '目标市场仍未明确' : '市场方向已有初步输入' },
+      { step: '拆解关键假设', status: 'completed', action: '拆分需求、获客、付费和 MVP 假设', finding: '需要先验证需求和首批用户反馈', uncertainty: '真实付费意愿仍需补证' },
+      { step: '匹配市场信号', status: 'completed', action: '用相关性分过滤候选信号', finding: `找到 ${strongMatches.length} 条匹配信号`, uncertainty: noMatch ? '当前没有足够相关证据' : '信号仅可作为验证参考' },
+      { step: '排除无关信号', status: 'completed', action: '排除品类或受众不一致的候选', finding: `排除 ${rejectedSignals.length} 条无关信号`, uncertainty: '被排除信号不参与进入判断' },
+      { step: '生成 MVP 验证路径', status: 'completed', action: '按输入方向和资源生成 7 天动作', finding: sevenDayPlan[0], uncertainty: '需要用实际用户反馈验证' },
+    ],
+    evidenceBoard: [
+      { title: '用户输入的项目方向', source: '用户输入', sourceType: 'user_input', evidenceStrength: 'medium', supports: '项目理解与关键假设拆解', url: null, sourceItemId: null, note: '来自用户输入，不代表外部市场证据。' },
+      ...matchedSignals.slice(0, 3).map((item) => ({ title: item.title, source: item.evidence?.[0]?.source || item.platformId || 'HotPulse', sourceType: loaded.source === 'real' ? 'real_signal' : 'mock_signal', evidenceStrength: item.evidence?.[0]?.evidenceStrength || 'low', supports: '与项目方向相关的市场信号参考', url: item.evidence?.[0]?.url || null, sourceItemId: item.id, note: loaded.source === 'real' ? '可追溯市场信号。' : '结构演示，不代表真实市场结论。' })),
+    ],
+    projectEvaluation: [
+      { label: '输入相关性', score: Math.max(50, topScore || 55), explanation: '基于输入完整度和候选相关性。' },
+      { label: '市场需求证据', score: noMatch ? 25 : 60, explanation: noMatch ? '缺少直接相关信号。' : '存在相关信号可参考。' },
+      { label: '目标用户清晰度', score: intent.audience ? 65 : 35, explanation: '用户画像仍需细分。' },
+      { label: '获客可行性', score: 45, explanation: '需要小样本触达验证。' },
+      { label: '支付/订阅可行性', score: intent.businessModel === '未明确' ? 35 : 55, explanation: '变现方式需要验证。' },
+      { label: 'MVP 可行性', score: 70, explanation: '可先用轻量页面验证。' },
+    ],
+    riskBottlenecks: riskItems.slice(0, 3).map((risk) => ({ title: risk.label, level: risk.level === '高' ? 'high' : risk.level === '中' ? 'medium' : 'low', why: `${risk.label}可能影响验证结论。`, impact: '如果不先验证，可能导致进入判断失真。', validationAction: '用 landing page、访谈或小样本测试验证。', stopOrAdjust: '如果反馈不足或风险成本过高，应调整方向或暂停。' })),
+    mvpValidationPlan: buildMvpValidationPlanObjects(sevenDayPlan),
+    matchedSignals,
+    matchedOpportunities: strongMatches.slice(0, 3).map((entry) => ({ id: `matched-${entry.item.id}`, title: entry.item.title, sourceItemId: entry.item.id, fitScore: entry.relevance.finalRelevanceScore, reason: `${entry.relevance.relevanceLabel}：与 ${intent.productCategory} / ${intent.targetMarket} 的验证方向相关。`, firstStep: sevenDayPlan[0], riskWarning: `优先关注${riskItems[0]?.label || '主要风险'}。` })),
     recommendation, riskMatrix: riskItems, sevenDayPlan,
-    clarifyingQuestions: clarifyingQuestions(), evidenceGaps: noMatch ? evidenceGapsForIntent(intent) : [], warnings: loaded.source !== 'real' ? ['当前为 mock/fallback 数据，仅用于结构演示，不代表真实市场结论。'] : [],
+    clarifyingQuestions: clarifyingQuestions(), evidenceGaps: noMatch ? evidenceGapsForIntent(intent) : [], warnings,
     relevanceScores: { topSignalScores: scored.slice(0, 5).map((entry) => ({ id: entry.item.id, title: entry.item.title, ...entry.relevance })), rejectedSignals },
-  });
+  };
+}
+
+function coerceLlmResponseToAnalyzeResponse(llmJson, fallback, loadedSource) {
+  const recommendation = llmJson.recommendation || {};
+  const evidenceBoard = Array.isArray(llmJson.evidenceBoard) ? llmJson.evidenceBoard.map((item) => ({ ...item, url: item.url || undefined, sourceItemId: item.sourceItemId || undefined, note: item.sourceType === 'mock_signal' ? `${item.note || ''} 结构演示，不代表真实市场结论。`.trim() : item.note })) : fallback.evidenceBoard;
+  return {
+    ...fallback,
+    version: '2.1-ai',
+    projectUnderstanding: llmJson.projectUnderstanding || fallback.projectUnderstanding,
+    userConditions: llmJson.userConditions || fallback.userConditions,
+    keyAssumptions: Array.isArray(llmJson.keyAssumptions) ? llmJson.keyAssumptions : fallback.keyAssumptions,
+    analysisTrace: Array.isArray(llmJson.analysisTrace) ? llmJson.analysisTrace : fallback.analysisTrace,
+    evidenceBoard,
+    projectEvaluation: Array.isArray(llmJson.projectEvaluation) ? llmJson.projectEvaluation : fallback.projectEvaluation,
+    riskBottlenecks: Array.isArray(llmJson.riskBottlenecks) ? llmJson.riskBottlenecks : fallback.riskBottlenecks,
+    mvpValidationPlan: Array.isArray(llmJson.mvpValidationPlan) ? llmJson.mvpValidationPlan : fallback.mvpValidationPlan,
+    clarifyingQuestions: Array.isArray(llmJson.clarifyingQuestions) ? llmJson.clarifyingQuestions : fallback.clarifyingQuestions,
+    evidenceGaps: Array.isArray(llmJson.evidenceGaps) ? llmJson.evidenceGaps : fallback.evidenceGaps,
+    warnings: [...(Array.isArray(llmJson.warnings) ? llmJson.warnings : []), ...(loadedSource !== 'real' ? ['当前为 mock/fallback 数据，仅用于结构演示，不代表真实市场结论。'] : [])],
+    recommendation: { ...fallback.recommendation, title: recommendation.title || fallback.recommendation.title, verdict: recommendation.verdict || fallback.recommendation.verdict, summary: recommendation.summary || fallback.recommendation.summary, nextStep: recommendation.nextStep || fallback.recommendation.nextStep },
+  };
+}
+
+async function analyzeWithLLM({ query, profile, source, candidateSignals, fallback }) {
+  if (!process.env.OPENAI_API_KEY) return null;
+  const signalSummary = candidateSignals.slice(0, 12).map((item) => ({ id: item.id, title: item.title, source: item.evidence?.[0]?.source || item.platformId, evidenceStrength: item.evidence?.[0]?.evidenceStrength || 'low', url: item.evidence?.[0]?.url || null, type: item.evidence?.[0]?.type || item.category, targetMarket: item.targetMarket || null, targetUser: item.targetUser || null }));
+  const systemPrompt = '你是 HotPulse 的出海项目验证分析引擎。你的任务不是推荐热门机会，而是围绕用户输入的项目做验证。用户输入是主线，市场信号只是辅助证据。不允许伪造真实数据。如果没有真实证据，必须输出 evidenceGaps 和 warnings。所有判断必须区分 user_input、real_signal、mock_signal、market_knowledge、system_inference。source=mock 时必须提醒 mock 只用于结构演示。MVP 路径和风险必须根据用户条件、资源、预算和项目类型生成。只返回严格 JSON，不要 Markdown。';
+  const userPrompt = JSON.stringify({ query, profile, source, candidateSignals: signalSummary, requiredSchema: ['projectUnderstanding', 'userConditions', 'keyAssumptions', 'analysisTrace', 'evidenceBoard', 'projectEvaluation', 'riskBottlenecks', 'mvpValidationPlan', 'recommendation', 'clarifyingQuestions', 'evidenceGaps', 'warnings'] });
+  const response = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.2, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] }) });
+  if (!response.ok) throw new Error(`OpenAI request failed: ${response.status}`);
+  const payload = await response.json();
+  const content = payload?.choices?.[0]?.message?.content;
+  if (!content) throw new Error('OpenAI returned empty content');
+  return coerceLlmResponseToAnalyzeResponse(JSON.parse(content), fallback, source);
+}
+
+app.post('/api/analyze', async (req, res) => {
+  const body = req.body || {};
+  const query = typeof body.query === 'string' ? body.query.trim() : '';
+  const requestedSource = body.source === 'real' ? 'real' : body.source === 'fallback' ? 'fallback' : 'mock';
+  const profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
+  const loaded = await loadAnalyzeItems(requestedSource);
+  const fallback = buildRuleAnalyzeResponse({ query, profile, source: requestedSource, loaded });
+  try {
+    const aiResult = await analyzeWithLLM({ query, profile, source: loaded.source, candidateSignals: loaded.items, fallback });
+    if (aiResult) {
+      res.json(aiResult);
+      return;
+    }
+  } catch (error) {
+    fallback.warnings = [...(fallback.warnings || []), 'AI 语义分析暂不可用，当前结果来自本地规则引擎。'];
+    fallback.analysisTrace = [...(fallback.analysisTrace || []), { step: 'AI 语义分析兜底', status: 'completed', action: '切换到本地规则引擎', finding: error instanceof Error ? error.message : 'AI 分析失败', uncertainty: '结果为规则引擎输出，建议补充真实信号后复核。' }];
+  }
+  if (!process.env.OPENAI_API_KEY) fallback.warnings = [...(fallback.warnings || []), 'AI 语义分析暂不可用，当前结果来自本地规则引擎。'];
+  res.json(fallback);
 });
 
 const server = app.listen(PORT, () => {

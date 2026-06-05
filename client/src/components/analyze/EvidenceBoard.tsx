@@ -17,12 +17,16 @@ export function EvidenceBoard({ items, source }: { items?: EvidenceBoardItem[]; 
       <h2 style={{ margin: 0 }}>证据链</h2>
       <div style={{ display: 'grid', gap: 10 }}>
         {evidence.map((item) => {
+          const isMock = item.sourceType === 'mock_signal';
+          const isKnowledge = item.sourceType === 'market_knowledge';
+          const isUserInput = item.sourceType === 'user_input';
+          const hasRealUrl = item.sourceType === 'real_signal' && !!item.url && !String(item.url).includes('example.com');
           const handleClick = () => {
-            if (item.url) {
+            if (hasRealUrl && item.url) {
               window.open(item.url, '_blank', 'noopener,noreferrer');
               return;
             }
-            if (item.sourceItemId) {
+            if (item.sourceItemId && !isMock && !isKnowledge && !isUserInput) {
               window.location.href = `/signals?source=${source}`;
             }
           };
@@ -33,8 +37,10 @@ export function EvidenceBoard({ items, source }: { items?: EvidenceBoardItem[]; 
               <p style={{ margin: '6px 0 0', color: '#334155' }}><strong>来源：</strong>{item.source} · <strong>类型：</strong>{item.sourceType} · <strong>强度：</strong>{item.evidenceStrength ?? 'low'}</p>
               <p style={{ margin: '4px 0 0', color: '#334155' }}><strong>支持：</strong>{item.supports}</p>
               {item.note ? <p style={{ margin: '4px 0 0', color: '#64748b' }}>{item.note}</p> : null}
-              {item.sourceType === 'mock_signal' ? <p style={{ margin: '4px 0 0', color: '#9a3412' }}>结构演示，不代表真实市场结论</p> : null}
-              <button type="button" onClick={handleClick} style={{ marginTop: 10, border: 'none', borderRadius: 999, padding: '8px 12px', background: '#244b86', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>查看来源</button>
+              {isMock ? <p style={{ margin: '4px 0 0', color: '#9a3412' }}>结构演示，不代表真实市场结论</p> : null}
+              {isKnowledge ? <p style={{ margin: '4px 0 0', color: '#64748b' }}>市场知识库参考</p> : null}
+              {isUserInput ? <p style={{ margin: '4px 0 0', color: '#64748b' }}>来自用户输入</p> : null}
+              {hasRealUrl ? <button type="button" onClick={handleClick} style={{ marginTop: 10, border: 'none', borderRadius: 999, padding: '8px 12px', background: '#244b86', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>查看来源</button> : null}
             </article>
           );
         })}

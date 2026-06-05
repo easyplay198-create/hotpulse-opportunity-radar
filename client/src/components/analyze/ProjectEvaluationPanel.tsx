@@ -25,7 +25,7 @@ export function ProjectEvaluationPanel({ items }: { items?: ProjectEvaluationIte
             <div style={{ marginTop: 8, height: 8, borderRadius: 999, background: '#e2e8f0' }}>
               <div style={{ width: `${Math.max(0, Math.min(100, item.score))}%`, height: '100%', borderRadius: 999, background: item.score >= 70 ? '#16a34a' : item.score >= 40 ? '#f59e0b' : '#94a3b8' }} />
             </div>
-            <p style={{ margin: '8px 0 0', color: '#64748b' }}>{item.explanation}</p>
+            <p style={{ margin: '8px 0 0', color: '#64748b', lineHeight: 1.5 }}>{item.explanation}</p>
           </article>
         ))}
       </div>
