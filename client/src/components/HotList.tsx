@@ -131,7 +131,7 @@ export function HotList({ platforms, items }: HotListProps) {
               <div className="hot-card__primaryActionWrap">
                 <a
                   className="hot-card__viewReportLink hot-card__viewReportLink--primary"
-                  href={`?source=${new URLSearchParams(window.location.search).get('source') === 'real' ? 'real' : 'mock'}&report=${item.id}`}
+                  href={`/report?id=${item.id}&source=${new URLSearchParams(window.location.search).get('source') === 'real' ? 'real' : new URLSearchParams(window.location.search).get('source') === 'fallback' ? 'fallback' : 'mock'}`}
                   onClick={() => {
                     sessionStorage.setItem('returnToOpportunityId', item.id);
                     sessionStorage.setItem('returnScrollY', String(window.scrollY));
