@@ -2,11 +2,19 @@ import type { HotItem } from '../types/hot';
 import { buildMvpValidationPlan } from '../lib/buildMvpValidationPlan';
 import { buildOpportunityWedge } from '../lib/buildOpportunityWedge';
 import { buildMvpValidationReportText } from '../lib/buildMvpValidationReportText';
+import { ReportHeroConclusion } from './report/ReportHeroConclusion';
+import { ReportScoreSummary } from './report/ReportScoreSummary';
+import { ReportRiskBars } from './report/ReportRiskBars';
+import { ReportEvidenceTimeline } from './report/ReportEvidenceTimeline';
+import { ReportValidationRoadmap } from './report/ReportValidationRoadmap';
+import { ReportDecisionMatrix } from './report/ReportDecisionMatrix';
+import { ReportExecutionCards } from './report/ReportExecutionCards';
+import './report/ReportVisual.css';
 import './OpportunityReportPreview.css';
 
 interface OpportunityReportPreviewProps {
   item: HotItem;
-  onBack: (id: string) => void;
+  onBack?: (id: string) => void;
 }
 
 function getVerdictLabel(verdict: HotItem['verdict']) {
@@ -18,117 +26,72 @@ function getVerdictLabel(verdict: HotItem['verdict']) {
 export function OpportunityReportPreview({ item, onBack }: OpportunityReportPreviewProps) {
   const plan = buildMvpValidationPlan(item);
   const wedge = buildOpportunityWedge(item);
-  const evidence = item.evidence?.slice(0, 2) ?? [];
+  const evidence = item.evidence ?? [];
   const reportText = buildMvpValidationReportText(item);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(reportText);
-    } catch (error) {
-      console.warn('复制验证方案失败', error);
-    }
-  };
-
+  const verificationDifficulty = Math.max(0, Math.min(100, Math.round(((item.acquisitionRisk ?? 40) + (item.complianceRisk ?? 40) + (item.aiCostRisk ?? 40)) / 3)));
+  const evidenceLabel = evidence[0]?.evidenceStrength ?? 'medium';
+  const riskLevel = (value: number): '低' | '中' | '高' => (value >= 70 ? '高' : value >= 40 ? '中' : '低');
+  const risks = [
+    { label: '支付风险', value: item.paymentRisk ?? 0, level: riskLevel(item.paymentRisk ?? 0), explanation: '用户是否愿意为该方案付费。', suggestion: '先验证付费意愿，再决定价格和订阅方式。' },
+    { label: '本地化风险', value: item.localizationRisk ?? 0, level: riskLevel(item.localizationRisk ?? 0), explanation: '语言、文化或 UX 适配要求。', suggestion: '先做 1 个市场文案版本，不要一次本地化全产品。' },
+    { label: '合规风险', value: item.complianceRisk ?? 0, level: riskLevel(item.complianceRisk ?? 0), explanation: '上架、支付或行业监管门槛。', suggestion: '先做合规清单，不要直接进入高监管场景。' },
+    { label: '获客风险', value: item.acquisitionRisk ?? 0, level: riskLevel(item.acquisitionRisk ?? 0), explanation: '获取第一批用户的成本。', suggestion: '先用小预算测试点击和留资，不要重投放。' },
+    { label: 'AI 成本风险', value: item.aiCostRisk ?? 0, level: riskLevel(item.aiCostRisk ?? 0), explanation: 'token / 推理成本是否压缩毛利。', suggestion: '先测算单次调用成本，再决定是否扩大。' },
+  ];
+  const roadmap = plan.sevenDayPlan.map((step, index) => ({
+    stage: `阶段 ${index + 1}`,
+    action: step,
+    output: index === 0 ? 'Landing / demo page' : index === 1 ? '本地化文案或竞品表' : index === 2 ? '首批反馈记录' : index === 3 ? '行为数据汇总' : '进入/暂停判断',
+    decision: index === 0 ? '是否完成最小表达' : index === 1 ? '是否形成可测假设' : index === 2 ? '是否拿到第一批反馈' : index === 3 ? '是否有足够转化迹象' : '继续、调整或暂停',
+  }));
+  const execCards = [
+    { title: '支付 / 订阅验证', description: '先用 Stripe、Paddle 或本地支付方案测试付费意向。' },
+    { title: '本地化文案测试', description: '先翻译 1 个 landing page，不要直接本地化全产品。' },
+    { title: '小预算投放验证', description: '先做 $50-$200 小预算点击测试，检查留资和反馈。' },
+  ];
+  const handleCopy = async () => { try { await navigator.clipboard.writeText(reportText); } catch (error) { console.warn('复制验证方案失败', error); } };
   const handleBack = () => {
-    sessionStorage.setItem('returnToOpportunityId', item.id);
-    sessionStorage.setItem('returnScrollY', String(window.scrollY));
-    onBack(item.id);
+    const savedScroll = Number(sessionStorage.getItem('hotpulse_return_scroll_y') || '0');
+    const savedPath = sessionStorage.getItem('hotpulse_return_path') || '/';
+    const savedItemId = sessionStorage.getItem('hotpulse_return_item_id');
+    if (window.history.length > 1) window.history.back(); else if (onBack) onBack(item.id); else window.location.href = savedPath;
+    window.setTimeout(() => {
+      window.scrollTo(0, savedScroll || 0);
+      if (savedItemId) document.getElementById(`opportunity-${savedItemId}`)?.scrollIntoView({ block: 'center' });
+    }, 0);
   };
 
   return (
     <div className="report-preview">
       <div className="report-preview__topbar">
-        <button type="button" className="report-preview__backButton" onClick={handleBack}>
-          返回机会雷达
-        </button>
+        <button type="button" className="report-preview__backButton" onClick={handleBack}>返回机会雷达</button>
       </div>
 
-      <section className="report-preview__hero">
-        <p className="report-preview__eyebrow">MVP 出海验证快评</p>
-        <h1 className="report-preview__title">{item.title}</h1>
-        <div className="report-preview__meta">
-          <span>目标市场：{item.targetMarket ?? '暂无明确数据'}</span>
-          <span>产品类型：{item.productType ?? '暂无明确数据'}</span>
-          <span>机会分：{item.valueScore ?? 0}</span>
-          <span>当前建议：{getVerdictLabel(item.verdict)}</span>
-        </div>
-        <button type="button" className="report-preview__copyButton" onClick={handleCopy}>
-          复制验证方案
-        </button>
-      </section>
+      <ReportHeroConclusion
+        title={item.title}
+        verdictLabel={getVerdictLabel(item.verdict)}
+        targetMarket={item.targetMarket ?? 'Global'}
+        productType={item.productType ?? '未注明'}
+        opportunityScore={item.valueScore ?? 0}
+        wedgeScore={Math.round(wedge.wedgeScore)}
+        conclusion={wedge.displaySummary}
+        minimumAction={plan.validationGoal}
+        onCopy={handleCopy}
+        onBack={handleBack}
+      />
 
-      <section className="report-preview__grid">
-        <article className="report-preview__card report-preview__card--wedge">
-          <h2>小团队可切入判断</h2>
-          <div className="report-preview__wedgeTag">{wedge.opportunityRole === 'benchmark_competitor' ? '标杆竞品' : wedge.opportunityRole === 'wedge_opportunity' ? '可切入机会' : wedge.opportunityRole === 'avoid_direct_entry' ? '暂不建议进入' : '市场信号'}</div>
-          <p className="report-preview__wedgeSummary">{wedge.displaySummary}</p>
-          <div className="report-preview__bar"><div className="report-preview__barFill" style={{ width: `${Math.round(wedge.wedgeScore)}%` }} /></div>
-          <div className="report-preview__section"><strong>小团队可切入度：</strong>{Math.round(wedge.wedgeScore)}</div>
-          <div className="report-preview__section">
-            <strong>痛点洞察：</strong>
-            <ul className="report-preview__bulletList">
-              {wedge.painPointInsights.slice(0, 3).map((text) => <li key={text}>{text}</li>)}
-            </ul>
-          </div>
-          <div className="report-preview__section">
-            <strong>切入建议：</strong>
-            <ul className="report-preview__bulletList">
-              {wedge.wedgeSuggestions.slice(0, 3).map((text) => <li key={text}>{text}</li>)}
-            </ul>
-          </div>
-        </article>
+      <ReportScoreSummary
+        opportunityScore={item.valueScore ?? 0}
+        wedgeScore={Math.round(wedge.wedgeScore)}
+        evidenceLabel={evidenceLabel}
+        validationDifficulty={verificationDifficulty}
+      />
 
-        <article className="report-preview__card">
-          <h2>真实信号</h2>
-          {evidence.length === 0 ? (
-            <p>暂无明确数据</p>
-          ) : (
-            <ul className="report-preview__list">
-              {evidence.map((ev) => (
-                <li key={ev.url} className="report-preview__listItem">
-                  <div>来源：{ev.source ?? '暂无明确数据'}</div>
-                  <div>类型：{ev.type ?? '暂无明确数据'}</div>
-                  <div>证据强度：{ev.evidenceStrength ?? '暂无明确数据'}</div>
-                  <div>时间：{ev.retrievedAt ?? '暂无明确数据'}</div>
-                  <a href={ev.url} target="_blank" rel="noreferrer">原始链接</a>
-                </li>
-              ))}
-            </ul>
-          )}
-        </article>
-
-        <article className="report-preview__card">
-          <h2>进入风险</h2>
-          <ul className="report-preview__facts">
-            <li>支付适配：{item.paymentFit ?? '暂无明确数据'}</li>
-            <li>支付风险：{item.paymentRisk ?? '暂无明确数据'}</li>
-            <li>本地化风险：{item.localizationRisk ?? '暂无明确数据'}</li>
-            <li>合规风险：{item.complianceRisk ?? '暂无明确数据'}</li>
-            <li>获客风险：{item.acquisitionRisk ?? '暂无明确数据'}</li>
-            <li>AI 成本风险：{item.aiCostRisk ?? '暂无明确数据'}</li>
-            <li>市场进入备注：{item.marketEntryNotes?.slice(0, 2).join(' · ') ?? '暂无明确数据'}</li>
-          </ul>
-        </article>
-
-        <article className="report-preview__card">
-          <h2>MVP 验证计划</h2>
-          <div className="report-preview__section"><strong>验证目标：</strong>{plan.validationGoal}</div>
-          <div className="report-preview__section"><strong>建议渠道：</strong>{plan.suggestedChannel}</div>
-          <div className="report-preview__section"><strong>预算区间：</strong>{plan.budgetRange}</div>
-          <div className="report-preview__section">
-            <strong>7 天计划：</strong>
-            <ol className="report-preview__list report-preview__list--ordered">
-              {plan.sevenDayPlan.map((step) => <li key={step}>{step}</li>)}
-            </ol>
-          </div>
-          <div className="report-preview__section"><strong>成功指标：</strong>{plan.successMetric}</div>
-          <div className="report-preview__section"><strong>停止条件：</strong>{plan.stopCondition}</div>
-        </article>
-
-        <article className="report-preview__card report-preview__card--note">
-          <p>真实信号仅代表可追溯线索，不等于完整市场结论。建议先做小样本验证，再决定是否投入开发、投放或上架。</p>
-        </article>
-      </section>
+      <ReportRiskBars risks={risks} />
+      <ReportEvidenceTimeline evidence={evidence} />
+      <ReportValidationRoadmap steps={roadmap} />
+      <ReportDecisionMatrix competitionPressure={item.competitionRisk ?? 0} wedgeScore={Math.round(wedge.wedgeScore)} />
+      <ReportExecutionCards items={execCards} />
     </div>
   );
 }

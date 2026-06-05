@@ -43,10 +43,10 @@ const DEFAULT_PROFILE: AdvisorProfile = {
   notes: '',
 };
 
-const ADVISOR_FORM_STORAGE_KEY = 'hotpulse.advisor.form';
-const ADVISOR_RESULT_STORAGE_KEY = 'hotpulse.advisor.result';
-const LEGACY_ADVISOR_FORM_STORAGE_KEY = 'hotpulse_advisor_profile';
-const LEGACY_ADVISOR_RESULT_STORAGE_KEY = 'hotpulse_advisor_result';
+const ADVISOR_FORM_STORAGE_KEY = 'hotpulse_advisor_profile';
+const ADVISOR_RESULT_STORAGE_KEY = 'hotpulse_advisor_result';
+const LEGACY_ADVISOR_FORM_STORAGE_KEY = 'hotpulse.advisor.form';
+const LEGACY_ADVISOR_RESULT_STORAGE_KEY = 'hotpulse.advisor.result';
 
 export function OpportunityAdvisorPanel({ items, smallTeamOpportunities, source }: OpportunityAdvisorPanelProps) {
   const [profile, setProfile] = useState<AdvisorProfile>(DEFAULT_PROFILE);
@@ -122,7 +122,7 @@ export function OpportunityAdvisorPanel({ items, smallTeamOpportunities, source 
         <p className="advisor-panel__eyebrow">个性化机会匹配</p>
         <h2 className="advisor-panel__title">我的机会顾问</h2>
         <p className="advisor-panel__description">按产品、资源、验证目标逐步填写，生成适合优先小样本测试的机会建议。</p>
-        {recommendations && <p className="advisor-panel__restoreHint">已恢复上次结果，可继续查看或清空重填。</p>}
+        {recommendations && <p className="advisor-panel__restoreHint">已恢复上次机会顾问结果，可继续查看或清空重填。</p>}
       </div>
 
       {recommendations && !editing ? (
