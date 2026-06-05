@@ -356,6 +356,119 @@ app.get('/api/opportunities', async (req, res) => {
   }
 });
 
+function loadAnalyzeItems(source) {
+  if (source !== 'real') return Promise.resolve({ source: source === 'fallback' ? 'fallback' : 'mock', items: getMockOpportunities().map(enhanceWithMarketKnowledge) });
+  return Promise.allSettled([
+    getHackerNewsOpportunities(),
+    getAppStoreOpportunities(),
+    getGitHubOpportunities(),
+    getProductHuntOpportunities(),
+    getGdeltOpportunities(),
+  ]).then((results) => {
+    const items = results.flatMap((result) => {
+      if (result.status !== 'fulfilled') return [];
+      const value = result.value;
+      const rawItems = Array.isArray(value) ? value : value?.items;
+      return Array.isArray(rawItems) ? rawItems : [];
+    }).map(ensureEvidenceItem).filter(Boolean).map(enhanceWithMarketKnowledge).slice(0, 50);
+    if (items.length === 0) return { source: 'fallback', items: getMockOpportunities().map(enhanceWithMarketKnowledge) };
+    return { source: 'real', items };
+  }).catch(() => ({ source: 'fallback', items: getMockOpportunities().map(enhanceWithMarketKnowledge) }));
+}
+
+function parseAnalyzeIntent(query, profile = {}) {
+  const text = `${query || ''} ${profile.targetMarket || ''}`.toLowerCase();
+  const targetMarket = /日本|japan/.test(text) ? '日本' : /印尼|indonesia/.test(text) ? '印尼' : /东南亚|southeast asia/.test(text) ? '东南亚' : /欧美|\bus\b|europe/.test(text) ? '欧美' : /拉美|latin america/.test(text) ? '拉美' : /中东|middle east/.test(text) ? '中东' : profile.targetMarket || 'Global';
+  const productType = /游戏|game/.test(text) ? '游戏产品' : /短剧|内容|creator|video/.test(text) ? '内容产品' : /开发者|developer|插件|plugin|api/.test(text) ? '开发者工具' : /图片|image/.test(text) ? 'AI 图片工具' : /学习|英语|education|learn/.test(text) ? 'AI 学习工具' : /ai|工具|tool|saas/.test(text) ? 'AI / SaaS 工具' : '出海产品';
+  return { productType, targetMarket, userType: /团队|team|公司/.test(text) ? '出海团队' : '早期用户', stage: profile.productStage || '想法阶段', rawQuery: query || '' };
+}
+
+function evidenceRank(value) {
+  if (value === 'high') return 3;
+  if (value === 'medium') return 2;
+  return 1;
+}
+
+function strongestEvidence(item) {
+  return (item.evidence || []).reduce((max, ev) => Math.max(max, evidenceRank(ev.evidenceStrength)), 1);
+}
+
+function riskLevel(value) {
+  return value >= 70 ? '高' : value >= 40 ? '中' : '低';
+}
+
+function maxRisk(item) {
+  return Math.max(item.paymentRisk || 0, item.localizationRisk || 0, item.complianceRisk || 0, item.acquisitionRisk || 0, item.aiCostRisk || 0, item.competitionRisk || 0);
+}
+
+function matchAnalyzeItems(items, intent) {
+  const queryText = `${intent.rawQuery} ${intent.productType} ${intent.targetMarket}`.toLowerCase();
+  return [...items].map((item) => {
+    const haystack = `${item.title} ${item.summary} ${item.category} ${item.productType || ''} ${item.targetMarket || ''} ${(item.tags || []).join(' ')}`.toLowerCase();
+    const marketHit = intent.targetMarket !== 'Global' && haystack.includes(intent.targetMarket.toLowerCase()) ? 18 : 0;
+    const productHit = intent.productType.split(/[ /]+/).some((token) => token && haystack.includes(token.toLowerCase())) ? 18 : 0;
+    const queryHit = queryText.split(/\s+/).filter((token) => token.length > 1 && haystack.includes(token)).length * 4;
+    const score = Math.max(0, Math.min(100, Math.round((item.valueScore || 50) * 0.55 + strongestEvidence(item) * 8 + marketHit + productHit + queryHit - Math.max(0, maxRisk(item) - 75) * 0.2)));
+    return { item, score };
+  }).sort((a, b) => b.score - a.score);
+}
+
+app.post('/api/analyze', async (req, res) => {
+  const body = req.body || {};
+  const query = typeof body.query === 'string' ? body.query.trim() : '';
+  const requestedSource = body.source === 'real' ? 'real' : body.source === 'fallback' ? 'fallback' : 'mock';
+  const profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
+  const loaded = await loadAnalyzeItems(requestedSource);
+  const intent = parseAnalyzeIntent(query, profile);
+  const matched = matchAnalyzeItems(loaded.items, intent);
+  const top = matched[0]?.item;
+  const topScore = matched[0]?.score || 45;
+  const verdict = topScore >= 72 ? '优先验证' : topScore >= 55 ? '持续观察' : '暂不进入';
+  const evidenceStrength = top ? (strongestEvidence(top) >= 3 ? 'high' : strongestEvidence(top) >= 2 ? 'medium' : 'low') : 'low';
+  const riskItems = top ? [
+    ['支付风险', top.paymentRisk || 35],
+    ['本地化风险', top.localizationRisk || 45],
+    ['合规风险', top.complianceRisk || 35],
+    ['获客风险', top.acquisitionRisk || 50],
+    ['AI 成本风险', top.aiCostRisk || 40],
+  ].map(([label, value]) => ({ label, value, level: riskLevel(value) })) : [];
+  res.json({
+    analysisId: `analysis-${Date.now()}`,
+    source: loaded.source,
+    generatedAt: new Date().toISOString(),
+    steps: [
+      { id: 'parse', label: '解析产品方向', status: 'done', summary: `识别为 ${intent.productType}，目标市场 ${intent.targetMarket}` },
+      { id: 'signals', label: '检索市场信号', status: 'done', summary: `从 ${loaded.items.length} 条当前信号中检索相关线索` },
+      { id: 'evidence', label: '匹配证据链', status: 'done', summary: `匹配到 ${Math.min(3, matched.length)} 条优先信号` },
+      { id: 'risk', label: '扫描风险矩阵', status: 'done', summary: '检查支付、本地化、合规、获客和 AI 成本风险' },
+      { id: 'plan', label: '生成验证方案', status: 'done', summary: '生成 7 天 MVP 前验证动作' },
+    ],
+    parsedIntent: intent,
+    matchedSignals: matched.slice(0, 3).map((entry) => entry.item),
+    matchedOpportunities: matched.slice(0, 3).map((entry) => ({
+      id: `matched-${entry.item.id}`,
+      title: entry.item.title,
+      sourceItemId: entry.item.id,
+      fitScore: entry.score,
+      reason: `与 ${intent.productType} / ${intent.targetMarket} 的验证方向相近。`,
+      firstStep: '先做 landing page + waitlist，验证点击、留资和试用请求。',
+      riskWarning: `优先关注${riskItems.sort((a, b) => b.value - a.value)[0]?.label || '获客风险'}。`,
+    })),
+    recommendation: {
+      title: top ? `${intent.targetMarket} · ${intent.productType} 验证建议` : '先补充更多市场信号再判断',
+      verdict,
+      matchScore: topScore,
+      targetMarket: intent.targetMarket,
+      evidenceStrength,
+      summary: top ? `当前最相关信号是「${top.title}」，建议先做小样本验证，不直接大规模投入。` : '当前没有足够匹配信号，建议先查看市场信号或缩小目标市场。',
+      nextStep: '制作 1 页验证表达页，收集 10-20 个 waitlist 或 3-5 个有效访谈反馈。',
+      reportItemId: top?.id,
+    },
+    riskMatrix: riskItems,
+    sevenDayPlan: ['Day 1-2：明确目标人群和表达页', 'Day 3：完成本地化文案和 waitlist', 'Day 4-5：小样本投放或社区测试', 'Day 6：整理反馈和风险数据', 'Day 7：决定继续、调整或暂停'],
+  });
+});
+
 const server = app.listen(PORT, () => {
   console.log(`HotPulse mock API server running at http://localhost:${PORT}`);
   console.log(`PID: ${process.pid}`);
