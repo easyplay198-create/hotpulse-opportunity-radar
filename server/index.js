@@ -376,42 +376,71 @@ function loadAnalyzeItems(source) {
   }).catch(() => ({ source: 'fallback', items: getMockOpportunities().map(enhanceWithMarketKnowledge) }));
 }
 
-function parseAnalyzeIntent(query, profile = {}) {
+function parseQueryIntent(query, profile = {}) {
   const text = `${query || ''} ${profile.targetMarket || ''}`.toLowerCase();
-  const targetMarket = /日本|japan/.test(text) ? '日本' : /印尼|indonesia/.test(text) ? '印尼' : /东南亚|southeast asia/.test(text) ? '东南亚' : /欧美|\bus\b|europe/.test(text) ? '欧美' : /拉美|latin america/.test(text) ? '拉美' : /中东|middle east/.test(text) ? '中东' : profile.targetMarket || 'Global';
-  const productType = /游戏|game/.test(text) ? '游戏产品' : /短剧|内容|creator|video/.test(text) ? '内容产品' : /开发者|developer|插件|plugin|api/.test(text) ? '开发者工具' : /图片|image/.test(text) ? 'AI 图片工具' : /学习|英语|education|learn/.test(text) ? 'AI 学习工具' : /ai|工具|tool|saas/.test(text) ? 'AI / SaaS 工具' : '出海产品';
-  return { productType, targetMarket, userType: /团队|team|公司/.test(text) ? '出海团队' : '早期用户', stage: profile.productStage || '想法阶段', rawQuery: query || '' };
+  const has = (pattern) => pattern.test(text);
+  const targetMarket = has(/日本|japan/) ? '日本' : has(/台湾|taiwan/) ? '台湾' : has(/泰国|thailand/) ? '泰国' : has(/印尼|indonesia/) ? '印尼' : has(/东南亚|southeast asia|\bsea\b/) ? '东南亚' : has(/欧美|美国|\bus\b|europe/) ? '欧美' : has(/拉美|latin america/) ? '拉美' : has(/中东|middle east/) ? '中东' : (profile.targetMarket && profile.targetMarket !== 'Global' ? profile.targetMarket : '未明确');
+  let productCategory = '通用工具';
+  if (has(/社交|社区|聊天|匿名聊天|交友|约会|dating|陌生人社交|兴趣社区|陪伴|搞基|gay|同性|lgbtq|男同|queer/)) productCategory = '社交 / dating 产品';
+  else if (has(/开发者|插件|workflow|github|vscode|api|代码|ide/)) productCategory = '开发者工具 / 插件';
+  else if (has(/英语|学习|教育|课程|语言学习|学习工具|刷题|口语/)) productCategory = 'AI 教育工具';
+  else if (has(/短剧|内容|追剧|视频|剧集|订阅内容/)) productCategory = '短剧 / 内容产品';
+  else if (has(/图片|设计|生成图|绘图|创作|素材|海报/)) productCategory = 'AI 图片工具';
+  else if (has(/游戏|手游|休闲游戏|内购|关卡|玩法/)) productCategory = '游戏';
+  else if (has(/saas|b2b|企业工具|crm|管理后台|协作|项目管理/)) productCategory = 'SaaS / B2B 工具';
+  else if (has(/支付|订阅|本地支付|内购|收款|转化率|付费|虚拟礼物/)) productCategory = '支付 / 订阅验证';
+  else if (has(/ai|人工智能|智能体|agent|自动化|效率工具/)) productCategory = 'AI 工具';
+  const audienceMap = { '开发者工具 / 插件': '开发者 / 小型技术团队', 'AI 教育工具': '学生 / 语言学习用户 / 早期付费用户', '社交 / dating 产品': '社交用户 / 匿名社交用户 / 兴趣社区用户 / 早期种子用户', '短剧 / 内容产品': '内容消费用户 / 短剧用户', 'SaaS / B2B 工具': '出海企业 / 中小团队 / B2B 用户', 'AI 图片工具': '创作者 / 设计师 / 内容团队' };
+  const businessModel = has(/订阅|subscription|会员/) ? '订阅' : has(/虚拟礼物|打赏|礼物/) ? '虚拟礼物' : has(/增值|premium|pro/) ? '增值会员' : has(/广告/) ? '广告' : has(/b2b|企业|saas/) ? 'B2B SaaS' : '未明确';
+  const flagMap = { 'AI 工具': ['ai-cost', 'subscription', 'competition', 'retention', 'localization'], 'AI 教育工具': ['localization', 'education-fit', 'subscription', 'retention', 'ai-cost', 'competition'], '开发者工具 / 插件': ['developer-adoption', 'workflow-fit', 'integration-risk', 'pricing', 'competition'], '短剧 / 内容产品': ['content-rights', 'payment', 'localization', 'acquisition-cost', 'app-store-compliance'], '社交 / dating 产品': ['user-generated-content', 'privacy', 'content-moderation', 'user-safety', 'cold-start-community', 'app-store-compliance', 'payment-subscription'], '支付 / 订阅验证': ['payment-fit', 'local-payment', 'subscription-conversion', 'refund-risk', 'compliance'] };
+  const confidence = productCategory === '通用工具' ? 0.45 : productCategory === '社交 / dating 产品' ? 0.82 : 0.72;
+  return { productCategory, targetMarket, audience: audienceMap[productCategory] || '早期目标用户', businessModel, sensitivityFlags: flagMap[productCategory] || ['acquisition', 'localization', 'payment'], confidence, interpretationNote: `系统将该输入理解为「${productCategory}」方向。目标市场为「${targetMarket}」，商业模式为「${businessModel}」。`, rawQuery: query || '' };
 }
 
-function evidenceRank(value) {
-  if (value === 'high') return 3;
-  if (value === 'medium') return 2;
-  return 1;
+function evidenceRank(value) { if (value === 'high') return 3; if (value === 'medium') return 2; return 1; }
+function strongestEvidence(item) { return (item.evidence || []).reduce((max, ev) => Math.max(max, evidenceRank(ev.evidenceStrength)), 1); }
+function riskLevel(value) { return value >= 75 ? '高' : value >= 40 ? '中' : '低'; }
+function candidateText(item) { return `${item.title || ''} ${item.summary || ''} ${item.description || ''} ${(item.tags || []).join(' ')} ${item.targetMarket || ''} ${item.targetUser || ''} ${item.category || ''} ${item.productType || ''} ${(item.evidence || []).map((ev) => `${ev.title} ${ev.source}`).join(' ')}`.toLowerCase(); }
+function categoryKeywords(category) {
+  if (category.includes('社交')) return ['社交', '社区', '聊天', '交友', '约会', 'dating', 'anonymous', 'community', 'social', 'lgbtq'];
+  if (category.includes('教育')) return ['学习', '英语', '教育', '课程', '语言', '口语', 'learn', 'education'];
+  if (category.includes('开发者')) return ['开发者', 'github', 'api', '插件', 'vscode', '代码', 'developer', 'workflow'];
+  if (category.includes('短剧')) return ['短剧', '内容', '视频', '剧集', 'content', 'video'];
+  if (category.includes('图片')) return ['图片', '设计', '生成图', '绘图', 'image', 'design'];
+  if (category.includes('AI')) return ['ai', '人工智能', '智能体', 'agent', '自动化'];
+  return category.split(/[ /]+/).filter(Boolean);
 }
-
-function strongestEvidence(item) {
-  return (item.evidence || []).reduce((max, ev) => Math.max(max, evidenceRank(ev.evidenceStrength)), 1);
+function calculateRelevanceScore(intent, item) {
+  const text = candidateText(item);
+  const queryTokens = String(intent.rawQuery || '').toLowerCase().split(/\s+|，|。|,|\//).filter((token) => token.length > 1);
+  const keywords = categoryKeywords(intent.productCategory);
+  const queryIntentMatch = Math.min(100, queryTokens.filter((token) => text.includes(token)).length * 25 + keywords.filter((token) => text.includes(token)).length * 18);
+  const categoryMatch = keywords.some((token) => text.includes(token)) ? 85 : 0;
+  const audienceTokens = intent.audience.toLowerCase().split(/[ /]+/).filter((token) => token.length > 1);
+  const audienceMatch = audienceTokens.some((token) => text.includes(token)) ? 70 : categoryMatch > 0 ? 35 : 0;
+  const marketMatch = intent.targetMarket === '未明确' || intent.targetMarket === 'Global' ? 45 : text.includes(intent.targetMarket.toLowerCase()) ? 100 : 10;
+  const evidenceFit = Math.min(100, strongestEvidence(item) * 25 + ((item.evidence || []).length > 1 ? 20 : 0));
+  const finalRelevanceScore = Math.round(queryIntentMatch * 0.35 + categoryMatch * 0.25 + audienceMatch * 0.15 + marketMatch * 0.10 + evidenceFit * 0.15);
+  const relevanceLabel = finalRelevanceScore >= 80 ? '强匹配' : finalRelevanceScore >= 65 ? '匹配' : finalRelevanceScore >= 45 ? '弱相关参考' : '不相关';
+  const rejectionReason = finalRelevanceScore < 45 ? `品类或受众不相关：${item.category || item.productType || '该信号'} 与 ${intent.productCategory} 不属于同一验证方向。` : undefined;
+  return { queryIntentMatch, categoryMatch, audienceMatch, marketMatch, evidenceFit, finalRelevanceScore, eligible: finalRelevanceScore >= 45, relevanceLabel, rejectionReason };
 }
-
-function riskLevel(value) {
-  return value >= 70 ? '高' : value >= 40 ? '中' : '低';
-}
-
-function maxRisk(item) {
-  return Math.max(item.paymentRisk || 0, item.localizationRisk || 0, item.complianceRisk || 0, item.acquisitionRisk || 0, item.aiCostRisk || 0, item.competitionRisk || 0);
-}
-
 function matchAnalyzeItems(items, intent) {
-  const queryText = `${intent.rawQuery} ${intent.productType} ${intent.targetMarket}`.toLowerCase();
-  return [...items].map((item) => {
-    const haystack = `${item.title} ${item.summary} ${item.category} ${item.productType || ''} ${item.targetMarket || ''} ${(item.tags || []).join(' ')}`.toLowerCase();
-    const marketHit = intent.targetMarket !== 'Global' && haystack.includes(intent.targetMarket.toLowerCase()) ? 18 : 0;
-    const productHit = intent.productType.split(/[ /]+/).some((token) => token && haystack.includes(token.toLowerCase())) ? 18 : 0;
-    const queryHit = queryText.split(/\s+/).filter((token) => token.length > 1 && haystack.includes(token)).length * 4;
-    const score = Math.max(0, Math.min(100, Math.round((item.valueScore || 50) * 0.55 + strongestEvidence(item) * 8 + marketHit + productHit + queryHit - Math.max(0, maxRisk(item) - 75) * 0.2)));
-    return { item, score };
-  }).sort((a, b) => b.score - a.score);
+  return [...items].map((item) => ({ item, relevance: calculateRelevanceScore(intent, item) })).sort((a, b) => b.relevance.finalRelevanceScore - a.relevance.finalRelevanceScore || (b.item.valueScore || 0) - (a.item.valueScore || 0));
 }
+function buildRiskMatrixForIntent(intent) {
+  const rows = intent.productCategory.includes('社交') ? [['隐私安全', 85], ['内容审核', 85], ['社区冷启动', 82], ['应用商店合规', 75], ['支付订阅', 60], ['本地化文化风险', 72], ['用户安全', 80]] : intent.productCategory.includes('教育') ? [['本地化', 72], ['获客', 60], ['订阅转化', 62], ['AI 成本', 70], ['竞争', 75], ['留存', 70]] : intent.productCategory.includes('开发者') ? [['工作流嵌入', 75], ['开发者采用', 72], ['定价', 60], ['集成成本', 58], ['竞品替代', 65]] : intent.productCategory.includes('短剧') ? [['内容版权', 82], ['支付', 72], ['获客成本', 80], ['本地化', 70], ['应用商店合规', 60]] : [['获客', 60], ['本地化', 58], ['支付转化', 55], ['竞争', 62], ['留存', 60]];
+  return rows.map(([label, value]) => ({ label, value, level: riskLevel(value) }));
+}
+function buildSevenDayPlanForIntent(intent) {
+  if (intent.productCategory.includes('社交')) return ['Day 1-2：确定目标市场和核心人群，做匿名 landing page，测试价值主张。', 'Day 3：设计 2-3 个使用场景，如匹配、匿名聊天、兴趣社区。', 'Day 4-5：投放小预算广告或社群招募，收集 waitlist 和访谈样本。', 'Day 6：验证隐私、安全、审核和付费意愿，记录拒绝原因。', 'Day 7：根据注册率、访谈质量、付费意愿和风险成本决定继续、调整或暂停。'];
+  if (intent.productCategory.includes('教育')) return ['Day 1-2：确定学习场景和目标市场，做 landing page 和 demo 文案。', 'Day 3：准备 2-3 个学习任务样例，测试用户是否理解价值。', 'Day 4-5：招募 10-20 个目标用户试用，观察完成率和反馈。', 'Day 6：验证订阅意愿、AI 成本和本地化表达。', 'Day 7：根据注册率、试用完成率和付费意愿决定继续、调整或暂停。'];
+  if (intent.productCategory.includes('开发者')) return ['Day 1-2：定义目标开发者工作流和痛点，做 demo 页面或录屏。', 'Day 3：在 GitHub、HN、开发者社群收集反馈。', 'Day 4-5：邀请 10 个开发者试用最小 demo。', 'Day 6：验证是否能嵌入真实工作流，以及愿意付费的触发点。', 'Day 7：根据安装意愿、重复使用频率和反馈决定继续、调整或暂停。'];
+  if (intent.productCategory.includes('短剧')) return ['Day 1-2：确定目标市场、内容类型和付费路径。', 'Day 3：制作 2-3 个本地化内容钩子或短样片。', 'Day 4-5：小预算测试点击、完播、收藏或 waitlist。', 'Day 6：验证支付路径、订阅意愿和本地化接受度。', 'Day 7：根据点击率、留资率、付费意愿和版权风险决定继续、调整或暂停。'];
+  return ['Day 1-2：明确目标人群和表达页。', 'Day 3：准备最小 demo 或 landing page。', 'Day 4-5：做小样本访谈或投放测试。', 'Day 6：整理反馈、成本和风险。', 'Day 7：决定继续、调整或暂停。'];
+}
+function clarifyingQuestions() { return [{ id: 'target_market', text: '你想优先验证哪个市场？', options: ['日本', '台湾', '泰国', '东南亚', '欧美', '拉美', 'Global'] }, { id: 'product_shape', text: '产品更偏哪种形态？', options: ['工具型产品', '内容产品', '社交社区', '订阅服务', '开发者工具', 'AI 功能'] }, { id: 'business_model', text: '你计划怎么变现？', options: ['订阅会员', '一次性付费', '虚拟礼物', '增值功能', '广告', '暂不考虑变现'] }, { id: 'seed_channel', text: '是否已有种子用户渠道？', options: ['有社群', '有内容渠道', '有 B2B 客户', '有 KOL 合作', '暂无'] }, { id: 'main_risk', text: '你最担心哪个风险？', options: ['需求不真实', '获客成本高', '支付转化低', '本地化不足', '合规风险', '竞争太强'] }]; }
+function evidenceGapsForIntent(intent) { const gaps = ['缺少目标市场的直接用户需求信号', '缺少同类产品评论或下载趋势证据', '缺少目标用户付费意愿数据', '缺少低成本获客测试结果']; if (intent.productCategory.includes('社交')) gaps.push('缺少社区冷启动可行性证据', '缺少内容审核和用户安全成本评估'); if (intent.productCategory.includes('AI')) gaps.push('缺少留存和订阅转化证据', '缺少 AI 成本与付费能力匹配验证'); if (intent.productCategory.includes('开发者')) gaps.push('缺少工作流嵌入频率证据', '缺少开发者愿意付费的证据'); return gaps; }
 
 app.post('/api/analyze', async (req, res) => {
   const body = req.body || {};
@@ -419,53 +448,36 @@ app.post('/api/analyze', async (req, res) => {
   const requestedSource = body.source === 'real' ? 'real' : body.source === 'fallback' ? 'fallback' : 'mock';
   const profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
   const loaded = await loadAnalyzeItems(requestedSource);
-  const intent = parseAnalyzeIntent(query, profile);
-  const matched = matchAnalyzeItems(loaded.items, intent);
-  const top = matched[0]?.item;
-  const topScore = matched[0]?.score || 45;
-  const verdict = topScore >= 72 ? '优先验证' : topScore >= 55 ? '持续观察' : '暂不进入';
-  const evidenceStrength = top ? (strongestEvidence(top) >= 3 ? 'high' : strongestEvidence(top) >= 2 ? 'medium' : 'low') : 'low';
-  const riskItems = top ? [
-    ['支付风险', top.paymentRisk || 35],
-    ['本地化风险', top.localizationRisk || 45],
-    ['合规风险', top.complianceRisk || 35],
-    ['获客风险', top.acquisitionRisk || 50],
-    ['AI 成本风险', top.aiCostRisk || 40],
-  ].map(([label, value]) => ({ label, value, level: riskLevel(value) })) : [];
+  const intent = parseQueryIntent(query, profile);
+  const scored = matchAnalyzeItems(loaded.items, intent);
+  const eligible = scored.filter((entry) => entry.relevance.finalRelevanceScore >= 45);
+  const strongMatches = eligible.filter((entry) => entry.relevance.finalRelevanceScore >= 65);
+  const top = strongMatches[0]?.item;
+  const topScore = strongMatches[0]?.relevance.finalRelevanceScore ?? 0;
+  const riskItems = buildRiskMatrixForIntent(intent);
+  const sevenDayPlan = buildSevenDayPlanForIntent(intent);
+  const rejectedSignals = scored.filter((entry) => entry.relevance.finalRelevanceScore < 45).slice(0, 5).map((entry) => ({ id: entry.item.id, title: entry.item.title, finalRelevanceScore: entry.relevance.finalRelevanceScore, rejectionReason: entry.relevance.rejectionReason || '与当前输入方向不相关。' }));
+  const noMatch = strongMatches.length === 0;
+  const recommendation = noMatch ? {
+    title: '当前缺少足够相关信号，建议先做小样本验证', verdict: '持续观察', matchScore: Math.max(0, eligible[0]?.relevance.finalRelevanceScore ?? 0), targetMarket: intent.targetMarket, evidenceStrength: 'low', summary: '当前信号库中没有找到与该方向高度相关的可追溯信号。HotPulse 不建议基于无关信号做进入判断。', nextStep: '先明确目标市场、产品形态和变现方式，再用 landing page、访谈和小预算测试验证需求。'
+  } : {
+    title: `${intent.targetMarket} · ${intent.productCategory} 验证建议`, verdict: topScore >= 80 ? '优先验证' : '持续观察', matchScore: topScore, targetMarket: intent.targetMarket, evidenceStrength: strongestEvidence(top) >= 3 ? 'high' : strongestEvidence(top) >= 2 ? 'medium' : 'low', summary: `当前最相关信号是「${top.title}」，建议只把它作为验证参考，不要直接当成市场结论。`, nextStep: sevenDayPlan[0], reportItemId: top.id
+  };
   res.json({
-    analysisId: `analysis-${Date.now()}`,
-    source: loaded.source,
-    generatedAt: new Date().toISOString(),
+    version: '2.0', analysisId: `analysis-${Date.now()}`, source: loaded.source, generatedAt: new Date().toISOString(),
     steps: [
-      { id: 'parse', label: '解析产品方向', status: 'done', summary: `识别为 ${intent.productType}，目标市场 ${intent.targetMarket}` },
+      { id: 'parse', label: '解析产品方向', status: 'done', summary: `识别为 ${intent.productCategory}，目标市场 ${intent.targetMarket}` },
       { id: 'signals', label: '检索市场信号', status: 'done', summary: `从 ${loaded.items.length} 条当前信号中检索相关线索` },
-      { id: 'evidence', label: '匹配证据链', status: 'done', summary: `匹配到 ${Math.min(3, matched.length)} 条优先信号` },
-      { id: 'risk', label: '扫描风险矩阵', status: 'done', summary: '检查支付、本地化、合规、获客和 AI 成本风险' },
-      { id: 'plan', label: '生成验证方案', status: 'done', summary: '生成 7 天 MVP 前验证动作' },
+      { id: 'evidence', label: '匹配证据链', status: 'done', summary: `找到 ${strongMatches.length} 条匹配信号，${eligible.length - strongMatches.length} 条弱相关参考` },
+      { id: 'risk', label: '扫描风险矩阵', status: 'done', summary: `按 ${intent.productCategory} 生成风险矩阵` },
+      { id: 'plan', label: '生成验证方案', status: 'done', summary: '生成按输入方向定制的 7 天 MVP 验证动作' },
     ],
     parsedIntent: intent,
-    matchedSignals: matched.slice(0, 3).map((entry) => entry.item),
-    matchedOpportunities: matched.slice(0, 3).map((entry) => ({
-      id: `matched-${entry.item.id}`,
-      title: entry.item.title,
-      sourceItemId: entry.item.id,
-      fitScore: entry.score,
-      reason: `与 ${intent.productType} / ${intent.targetMarket} 的验证方向相近。`,
-      firstStep: '先做 landing page + waitlist，验证点击、留资和试用请求。',
-      riskWarning: `优先关注${riskItems.sort((a, b) => b.value - a.value)[0]?.label || '获客风险'}。`,
-    })),
-    recommendation: {
-      title: top ? `${intent.targetMarket} · ${intent.productType} 验证建议` : '先补充更多市场信号再判断',
-      verdict,
-      matchScore: topScore,
-      targetMarket: intent.targetMarket,
-      evidenceStrength,
-      summary: top ? `当前最相关信号是「${top.title}」，建议先做小样本验证，不直接大规模投入。` : '当前没有足够匹配信号，建议先查看市场信号或缩小目标市场。',
-      nextStep: '制作 1 页验证表达页，收集 10-20 个 waitlist 或 3-5 个有效访谈反馈。',
-      reportItemId: top?.id,
-    },
-    riskMatrix: riskItems,
-    sevenDayPlan: ['Day 1-2：明确目标人群和表达页', 'Day 3：完成本地化文案和 waitlist', 'Day 4-5：小样本投放或社区测试', 'Day 6：整理反馈和风险数据', 'Day 7：决定继续、调整或暂停'],
+    matchedSignals: eligible.slice(0, 3).map((entry) => ({ ...entry.item, relevanceScore: entry.relevance.finalRelevanceScore, relevanceLabel: entry.relevance.relevanceLabel })),
+    matchedOpportunities: strongMatches.slice(0, 3).map((entry) => ({ id: `matched-${entry.item.id}`, title: entry.item.title, sourceItemId: entry.item.id, fitScore: entry.relevance.finalRelevanceScore, reason: `${entry.relevance.relevanceLabel}：与 ${intent.productCategory} / ${intent.targetMarket} 的验证方向相关。`, firstStep: sevenDayPlan[0], riskWarning: `优先关注${riskItems.sort((a, b) => b.value - a.value)[0]?.label || '主要风险'}。` })),
+    recommendation, riskMatrix: riskItems, sevenDayPlan,
+    clarifyingQuestions: clarifyingQuestions(), evidenceGaps: noMatch ? evidenceGapsForIntent(intent) : [], warnings: loaded.source !== 'real' ? ['当前为 mock/fallback 数据，仅用于结构演示，不代表真实市场结论。'] : [],
+    relevanceScores: { topSignalScores: scored.slice(0, 5).map((entry) => ({ id: entry.item.id, title: entry.item.title, ...entry.relevance })), rejectedSignals },
   });
 });
 

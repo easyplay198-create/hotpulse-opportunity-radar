@@ -7,6 +7,12 @@ import { AnalyzeMatchedSignals } from '../../components/analyze/AnalyzeMatchedSi
 import { AnalyzeProgressPanel } from '../../components/analyze/AnalyzeProgressPanel';
 import { AnalyzeResultSummary } from '../../components/analyze/AnalyzeResultSummary';
 import { AnalyzeWorkbench } from '../../components/analyze/AnalyzeWorkbench';
+import { AnalysisTracePanel } from '../../components/analyze/AnalysisTracePanel';
+import { EvidenceBoard } from '../../components/analyze/EvidenceBoard';
+import { ProjectEvaluationPanel } from '../../components/analyze/ProjectEvaluationPanel';
+import { ProjectUnderstandingPanel } from '../../components/analyze/ProjectUnderstandingPanel';
+import { RiskBottleneckPanel } from '../../components/analyze/RiskBottleneckPanel';
+import { MvpValidationPlanPanel } from '../../components/analyze/MvpValidationPlanPanel';
 import type { AnalyzeProfile, AnalyzeResponse } from '../../types/analyze';
 import styles from './AnalyzePage.module.css';
 
@@ -94,15 +100,23 @@ export function AnalyzePage() {
           </section>
         ) : null}
 
+        {result ? (
+          <div className={styles.validationGrid}>
+            <div className={styles.validationMainCol}>
+              <ProjectUnderstandingPanel understanding={result.projectUnderstanding} />
+              <ProjectEvaluationPanel items={result.projectEvaluation} />
+              <RiskBottleneckPanel items={result.riskBottlenecks} />
+              <MvpValidationPlanPanel steps={result.mvpValidationPlan} fallback={result.sevenDayPlan} />
+            </div>
+            <div className={styles.validationSideCol}>
+              <AnalysisTracePanel analysisTrace={result.analysisTrace} rejectedCount={result.relevanceScores?.rejectedSignals?.length ?? 0} />
+              <EvidenceBoard items={result.evidenceBoard} source={source} />
+            </div>
+          </div>
+        ) : null}
+
         {result ? <AnalyzeResultSummary result={result} source={source} onReset={resetAll} onRetry={runAnalyze} /> : null}
         {result ? <AnalyzeMatchedSignals result={result} source={source} /> : null}
-
-        {result ? (
-          <section className={styles.resultMainCard}>
-            <h2>7 天 MVP 验证路径</h2>
-            <ol className={styles.planList}>{result.sevenDayPlan.map((step) => <li key={step}>{step}</li>)}</ol>
-          </section>
-        ) : null}
       </div>
     </AppShell>
   );
