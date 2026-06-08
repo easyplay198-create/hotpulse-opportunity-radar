@@ -3,18 +3,11 @@ import { analyzeOpportunity } from '../../api/analyzeOpportunity';
 import { AppShell } from '../../components/layout/AppShell';
 import { TopNav } from '../../components/layout/TopNav';
 import { AnalyzeAdvancedOptions } from '../../components/analyze/AnalyzeAdvancedOptions';
-import { AnalyzeMatchedSignals } from '../../components/analyze/AnalyzeMatchedSignals';
 import { AnalyzeProgressPanel } from '../../components/analyze/AnalyzeProgressPanel';
-import { AnalyzeResultSummary } from '../../components/analyze/AnalyzeResultSummary';
 import { AnalyzeWorkbench } from '../../components/analyze/AnalyzeWorkbench';
 import { AnalysisTracePanel } from '../../components/analyze/AnalysisTracePanel';
 import { ClarifyingQuestionsPanel } from '../../components/analyze/ClarifyingQuestionsPanel';
-import { EvidenceBoard } from '../../components/analyze/EvidenceBoard';
-import { MvpValidationPlanPanel } from '../../components/analyze/MvpValidationPlanPanel';
-import { ProjectEvaluationPanel } from '../../components/analyze/ProjectEvaluationPanel';
-import { ProjectUnderstandingPanel } from '../../components/analyze/ProjectUnderstandingPanel';
-import { RiskBottleneckPanel } from '../../components/analyze/RiskBottleneckPanel';
-import { WeakReferencePanel } from '../../components/analyze/WeakReferencePanel';
+import { AnalyzeActionReport } from '../../components/analyze/AnalyzeActionReport';
 import type { AnalyzeProfile, AnalyzeResponse } from '../../types/analyze';
 import styles from './AnalyzePage.module.css';
 
@@ -112,7 +105,6 @@ export function AnalyzePage() {
   };
 
   const viewResult = useMemo(() => normalizeViewResult(result), [result]);
-  const hasStrongMatches = (viewResult?.matchedOpportunities?.length ?? 0) > 0;
 
   return (
     <AppShell>
@@ -134,30 +126,17 @@ export function AnalyzePage() {
           </section>
         ) : null}
 
+        {viewResult ? <AnalyzeActionReport result={viewResult} source={source} /> : null}
+
         {viewResult ? (
           <div className={styles.resultLayout}>
             <div className={styles.resultMainCol}>
-              <ProjectUnderstandingPanel understanding={viewResult.projectUnderstanding} />
-              <ProjectEvaluationPanel items={viewResult.projectEvaluation} />
-              <RiskBottleneckPanel items={viewResult.riskBottlenecks} />
-              <MvpValidationPlanPanel steps={viewResult.mvpValidationPlan} fallback={viewResult.sevenDayPlan} />
               {viewResult.clarifyingQuestions?.length ? <ClarifyingQuestionsPanel questions={viewResult.clarifyingQuestions} /> : null}
-              <AnalyzeResultSummary result={viewResult} source={source} onReset={resetAll} onRetry={runAnalyze} />
             </div>
             <div className={styles.resultSideCol}>
               <AnalysisTracePanel analysisTrace={viewResult.analysisTrace} rejectedCount={viewResult.relevanceScores?.rejectedSignals?.length ?? 0} />
-              <EvidenceBoard items={viewResult.evidenceBoard} source={source} />
-              <WeakReferencePanel result={viewResult} />
-              <AnalyzeMatchedSignals result={viewResult} source={source} />
             </div>
           </div>
-        ) : null}
-
-        {viewResult && !hasStrongMatches ? (
-          <section className={styles.resultCard}>
-            <h2>当前没有找到足够相关的可追溯机会</h2>
-            <p>HotPulse 不建议基于无关信号做进入判断。</p>
-          </section>
         ) : null}
       </div>
     </AppShell>
