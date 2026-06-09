@@ -5,8 +5,6 @@ import { TopNav } from '../../components/layout/TopNav';
 import { AnalyzeAdvancedOptions } from '../../components/analyze/AnalyzeAdvancedOptions';
 import { AnalyzeProgressPanel } from '../../components/analyze/AnalyzeProgressPanel';
 import { AnalyzeWorkbench } from '../../components/analyze/AnalyzeWorkbench';
-import { AnalysisTracePanel } from '../../components/analyze/AnalysisTracePanel';
-import { ClarifyingQuestionsPanel } from '../../components/analyze/ClarifyingQuestionsPanel';
 import { AnalyzeActionReport } from '../../components/analyze/AnalyzeActionReport';
 import type { AnalyzeProfile, AnalyzeResponse } from '../../types/analyze';
 import styles from './AnalyzePage.module.css';
@@ -111,9 +109,9 @@ export function AnalyzePage() {
       <div className={styles.page}>
         <TopNav />
         <AnalyzeWorkbench query={query} source={source} analyzing={analyzing} onQueryChange={setQuery} onSubmit={runAnalyze} onReset={resetAll} />
-        <AnalyzeAdvancedOptions profile={profile} onChange={setProfile} />
+        {!viewResult ? <AnalyzeAdvancedOptions profile={profile} onChange={setProfile} /> : null}
 
-        {(analyzing || viewResult) ? <AnalyzeProgressPanel activeIndex={activeStep} done={Boolean(viewResult)} steps={viewResult?.steps} /> : null}
+        {analyzing ? <AnalyzeProgressPanel activeIndex={activeStep} done={false} steps={viewResult?.steps} /> : null}
 
         {error ? (
           <section className={styles.errorCard}>
@@ -127,17 +125,6 @@ export function AnalyzePage() {
         ) : null}
 
         {viewResult ? <AnalyzeActionReport result={viewResult} source={source} /> : null}
-
-        {viewResult ? (
-          <div className={styles.resultLayout}>
-            <div className={styles.resultMainCol}>
-              {viewResult.clarifyingQuestions?.length ? <ClarifyingQuestionsPanel questions={viewResult.clarifyingQuestions} /> : null}
-            </div>
-            <div className={styles.resultSideCol}>
-              <AnalysisTracePanel analysisTrace={viewResult.analysisTrace} rejectedCount={viewResult.relevanceScores?.rejectedSignals?.length ?? 0} />
-            </div>
-          </div>
-        ) : null}
       </div>
     </AppShell>
   );
