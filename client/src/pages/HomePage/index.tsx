@@ -90,6 +90,18 @@ function scoreBand(score: number) {
   return 'Avoid for now';
 }
 
+function opportunityVerdictLabel(index: number) {
+  if (index === 0) return 'Do Now / 优先验证';
+  if (index === 1) return 'Watch / 小预算观察';
+  return 'Niche Test / 细分市场测试';
+}
+
+function opportunityActionCopy(index: number) {
+  if (index === 0) return '24 小时内验证 landing page + 10 个目标用户访谈';
+  if (index === 1) return '先收集 20 条竞品评论，再判断是否做 MVP';
+  return '用 1 个细分关键词测试广告点击和留资意愿';
+}
+
 function riskChips(item: DiscoverableOpportunity) {
   const bag = `${item.title} ${item.whyNow} ${item.validationHypothesis}`.toLowerCase();
   const chips: Array<{ label: string; tone: 'low' | 'medium' | 'high' }> = [];
@@ -98,10 +110,6 @@ function riskChips(item: DiscoverableOpportunity) {
   if (/competition|competitor|替代|workflow/.test(bag)) chips.push({ label: 'Competition', tone: 'high' });
   if (chips.length === 0) chips.push({ label: 'Risk: Moderate', tone: 'low' });
   return chips.slice(0, 3);
-}
-
-function buildNextStep() {
-  return '24 小时内验证 landing page + 10 个目标用户访谈';
 }
 
 function LoadingPreview({ isRealSource }: { isRealSource?: boolean }) {
@@ -147,7 +155,7 @@ function SystemStatusStrip({ summary, dataSource, providerStats }: { summary: Ho
       <div className={styles.systemStat}>
         <span className={styles.systemStatLabel}>今日抓取量</span>
         <strong className={styles.systemStatValue}>{summary.totalCount}</strong>
-        <span className={styles.systemStatHint}>{providerRows.map((row) => row.value).join(' · ')}</span>
+        <span className={styles.systemStatHint}>{providerRows.map((row) => row.detail).join(' · ')}</span>
       </div>
       <div className={styles.systemStat}>
         <span className={styles.systemStatLabel}>可验证机会数</span>
@@ -170,7 +178,7 @@ function ProviderStatsWidget({ providerStats, dataSource }: { providerStats?: Pr
     <section className={styles.providerWidget} aria-label="数据源状态">
       <div className={styles.sectionHeader}>
         <div>
-          <h2>Provider Stats</h2>
+          <h2>数据源状态</h2>
           <p>查看哪些数据源正常、跳过或使用缓存。</p>
         </div>
         <span className={styles.providerBadge}>{dataSource === 'fallback' ? 'Cache' : dataSource === 'connecting' ? 'Connecting' : 'Live'}</span>
@@ -304,7 +312,7 @@ export function HomePage() {
         <section className={styles.pipeline} aria-label="验证流程">
           <div className={styles.sectionHeader}>
             <div>
-              <h2>Validation Flow</h2>
+              <h2>验证流程</h2>
               <p>从市场信号到验证动作的四步闭环。</p>
             </div>
           </div>
@@ -319,7 +327,7 @@ export function HomePage() {
         <section id="top-opportunities" className={styles.opportunity} aria-label="今日机会">
           <div className={styles.sectionHeader}>
             <div>
-              <h2>Today’s Top Opportunities</h2>
+              <h2>今日优先机会</h2>
               <p>只看最值得验证的 3 个机会。</p>
             </div>
             <span className={styles.sectionBadge}>{summary.doNowCount > 0 ? 'Do Now ready' : 'Monitor first'}</span>
@@ -328,11 +336,13 @@ export function HomePage() {
             {topOpportunities.map((opportunity, index) => {
               const scoreLabel = scoreBand(opportunity.discoveryScore);
               const confidenceLabel = opportunity.confidenceLevel === 'high' ? 'High confidence' : opportunity.confidenceLevel === 'medium' ? 'Medium confidence' : 'Low confidence';
+              const verdictLabel = opportunityVerdictLabel(index);
+              const actionCopy = opportunityActionCopy(index);
               return (
                 <article key={`${opportunity.id}-${index}`} className={styles.opportunityCard}>
                   <div className={styles.opportunityHead}>
                     <div>
-                      <span className={styles.opportunityVerdict}>{opportunity.trendTag}</span>
+                      <span className={styles.opportunityVerdict}>{verdictLabel}</span>
                       <h3>{opportunity.title}</h3>
                       <p className={styles.opportunityMarket}>{opportunity.targetMarket}</p>
                     </div>
@@ -356,7 +366,7 @@ export function HomePage() {
                       <span key={chip.label} className={`${styles.riskChip} ${styles[`riskChip--${chip.tone}`]}`}>{chip.label}</span>
                     ))}
                   </div>
-                  <p className={styles.opportunityAction}>{buildNextStep()}</p>
+                  <p className={styles.opportunityAction}>{actionCopy}</p>
                 </article>
               );
             })}
@@ -370,7 +380,7 @@ export function HomePage() {
         <section className={styles.execution} aria-label="下一步能力">
           <div className={styles.sectionHeader}>
             <div>
-              <h2>Execution Next Step</h2>
+              <h2>报告后的下一步</h2>
               <p>风险判断后的下一步能力，不是硬卖服务。</p>
             </div>
           </div>
