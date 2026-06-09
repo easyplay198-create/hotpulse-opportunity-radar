@@ -1,0 +1,95 @@
+.root {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: 12px;
+  background: var(--bg-surface, #fff);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  color: var(--text-primary, #0f172a);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.subtitle {
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+}
+
+.steps {
+  display: grid;
+  gap: 10px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong, #cbd5e1);
+  background: var(--bg-muted, #f1f5f9);
+}
+
+.done .dot { background: var(--go, #059669); border-color: var(--go, #059669); }
+.active .dot { background: var(--brand, #1f4f8f); border-color: var(--brand, #1f4f8f); }
+.pending .dot { background: var(--bg-muted, #f1f5f9); }
+
+.body {
+  display: grid;
+  gap: 4px;
+}
+
+.rowTop {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.label {
+  color: var(--text-primary, #0f172a);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.state {
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.description {
+  color: var(--text-secondary, #334155);
+  font-size: 13px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.track {
+  width: 2px;
+  min-height: 100%;
+  background: var(--border-subtle, #e2e8f0);
+  position: relative;
+}

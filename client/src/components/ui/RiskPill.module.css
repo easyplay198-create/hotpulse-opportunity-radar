@@ -1,0 +1,33 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: 10px;
+  background: var(--bg-surface, #fff);
+  color: var(--text-primary, #0f172a);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bar {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 999px;
+  background: var(--text-muted, #64748b);
+}
+
+.high .bar { background: var(--risk, #e11d48); }
+.medium .bar { background: var(--warn, #d97706); }
+.low .bar { background: var(--go, #059669); }
+
+.label {
+  color: var(--text-primary, #0f172a);
+}
+
+.level {
+  color: var(--text-muted, #64748b);
+  font-weight: 600;
+}
