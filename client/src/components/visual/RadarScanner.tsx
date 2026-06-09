@@ -10,6 +10,10 @@ export function RadarScanner({ source = 'mock', opportunityCount = 0 }: { source
           <div className="radarScanner__grid" />
           <div className="radarScanner__sweep" />
           <div className="radarScanner__glow" />
+          <div className="radarScanner__center">
+            <strong>{opportunityCount}</strong>
+            <span>opportunities</span>
+          </div>
           <div className="radarScanner__points">
             {SIGNALS.map((item, index) => (
               <span key={item} className={`radarScanner__point radarScanner__point--${index + 1}`}>
@@ -21,7 +25,7 @@ export function RadarScanner({ source = 'mock', opportunityCount = 0 }: { source
       </div>
       <div className="radarScanner__footer">
         <span className="radarScanner__badge">{source}</span>
-        <span className="radarScanner__meta">机会库 {opportunityCount}</span>
+        <span className="radarScanner__meta">Signal Radar Active</span>
         <p className="radarScanner__note">示例结构，不代表真实市场结论。</p>
       </div>
     </section>
