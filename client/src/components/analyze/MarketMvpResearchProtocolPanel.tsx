@@ -12,24 +12,8 @@ function statusLabel(status: MarketMvpResearchProtocol['evidenceCoverage'][numbe
   return '推断';
 }
 
-function confidenceLabel(confidence: MarketMvpResearchProtocol['probabilityView']['confidence']) {
-  if (confidence === 'high') return '高';
-  if (confidence === 'medium') return '中';
-  return '低';
-}
-
-function painLabel(value: MarketMvpResearchProtocol['userSegment']['painIntensity']) {
-  if (value === 'high') return '高';
-  if (value === 'medium') return '中';
-  if (value === 'low') return '低';
-  return '待验证';
-}
-
-function meterClass(status: MarketMvpResearchProtocol['evidenceCoverage'][number]['status']) {
-  if (status === 'covered') return styles.evidenceFillCovered;
-  if (status === 'weak') return styles.evidenceFillWeak;
-  if (status === 'missing') return styles.evidenceFillMissing;
-  return styles.evidenceFillInferred;
+function statusTone(status: MarketMvpResearchProtocol['evidenceCoverage'][number]['status']) {
+  return status === 'covered' ? 'framed' : status === 'weak' ? 'weak' : status === 'missing' ? 'missing' : 'planned';
 }
 
 function meterValue(status: MarketMvpResearchProtocol['evidenceCoverage'][number]['status']) {
@@ -39,203 +23,219 @@ function meterValue(status: MarketMvpResearchProtocol['evidenceCoverage'][number
   return '10%';
 }
 
-function readinessStatus(status: MarketMvpResearchProtocol['evidenceCoverage'][number]['status']) {
-  if (status === 'covered') return 'ready';
-  if (status === 'weak') return 'weak';
-  if (status === 'missing') return 'missing';
-  return 'inferred';
+function shortText(text: string, max = 42) {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-function mapLabel(label: string) {
-  if (label === '用户输入完整度') return '输入完整度';
-  if (label === '目标用户痛点') return '痛点';
-  if (label === '价格假设') return '价格';
-  if (label === '获客渠道') return '渠道';
-  if (label === '竞品借鉴假设') return '竞品';
-  if (label === '合规 / 平台风险') return '合规';
-  return label;
+function confidenceLabel(confidence: MarketMvpResearchProtocol['probabilityView']['confidence']) {
+  if (confidence === 'high') return '高';
+  if (confidence === 'medium') return '中';
+  return '低';
+}
+
+function exampleList() {
+  return [
+    'AI 图片工具出海日本，面向独立设计师，订阅制，核心痛点是低成本生成电商素材',
+    '英语学习 App 进入日本市场，面向大学生和职场新人，订阅制，验证付费意愿',
+    '陪伴型机器狗进入日本市场，面向独居老人家庭，硬件销售 + AI 陪伴订阅，验证养老陪伴场景',
+  ];
 }
 
 export function MarketMvpResearchProtocolPanel({ protocol }: Props) {
-  const readiness = protocol.evidenceCoverage.slice(0, 5);
-  const hypothesisCards = [
-    { title: '市场背景假设', eyebrow: 'Market Context', verdict: protocol.marketContext.stage, status: protocol.canJudge ? 'ready' : 'missing', keyLine: protocol.marketContext.summary },
-    { title: '用户画像假设', eyebrow: 'User Segment', verdict: `痛点 ${painLabel(protocol.userSegment.painIntensity)}`, status: protocol.userSegment.painIntensity === 'unknown' ? 'weak' : 'ready', keyLine: protocol.userSegment.primaryUser },
-    { title: '趋势 / 偏好信号', eyebrow: 'Trend Signal', verdict: protocol.trendSignal.evidenceStatus === 'covered' ? '可借鉴' : '待补证', status: protocol.trendSignal.evidenceStatus, keyLine: protocol.trendSignal.signal },
-    { title: '痛点假设', eyebrow: 'Pain Point', verdict: protocol.painPoint.strength === 'strong' ? '强' : protocol.painPoint.strength === 'medium' ? '中' : '待验证', status: protocol.painPoint.strength === 'unknown' ? 'weak' : 'inferred', keyLine: protocol.painPoint.hypothesis },
-    { title: '竞品可借鉴模式', eyebrow: 'Competitor Pattern', verdict: protocol.competitorPattern.evidenceStatus === 'covered' ? '可借鉴' : '待找到', status: protocol.competitorPattern.evidenceStatus, keyLine: protocol.competitorPattern.openGap },
-    { title: '价格与商业模式假设', eyebrow: 'Pricing Hypothesis', verdict: '待测试', status: protocol.probabilityView.confidence === 'high' ? 'covered' : 'weak', keyLine: protocol.pricingHypothesis.testRange },
-    { title: '供需与竞争判断', eyebrow: 'Supply / Demand', verdict: protocol.supplyDemand.competitionIntensity === 'high' ? '竞争强' : protocol.supplyDemand.competitionIntensity === 'medium' ? '竞争中' : '待验证', status: protocol.supplyDemand.competitionIntensity === 'unknown' ? 'inferred' : 'covered', keyLine: protocol.supplyDemand.demandSignal },
-  ];
+  if (!protocol.canJudge) {
+    const missingCards = [
+      { label: '目标市场', reason: '没有目标市场，无法判断竞品、价格和渠道。', example: '示例：日本 / 东南亚 / 美国 / 欧美' },
+      { label: '目标用户', reason: '没有目标用户，无法判断痛点是否真实。', example: '示例：独居老人家庭 / 独立设计师 / 大学生和职场新人' },
+      { label: '使用场景 / 核心痛点', reason: '没有明确场景，无法判断需求是否值得继续投入。', example: '示例：低成本生成电商素材 / 养老陪伴 / 英语口语练习' },
+      { label: '商业模式 / 付费方式', reason: '没有付费方式，无法测试价格接受度。', example: '示例：订阅制 / 硬件销售 + 订阅 / 一次性付费' },
+    ];
 
-  const passSignals = protocol.mvpStages.map((stage) => stage.passCondition);
+    return (
+      <section className={styles.consoleShell} aria-label="信息补齐工作台">
+        <div className={styles.protocolHeader}>
+          <div className={styles.protocolHeaderMain}>
+            <div className={styles.protocolKicker}>Market MVP Validation Flow Canvas</div>
+            <h2 className={styles.missingWorkspaceTitle}>暂不能进入市场 MVP 验证</h2>
+            <p className={styles.missingWorkspaceText}>当前输入还不足以形成可靠的市场假设。请先补齐关键条件，否则继续分析会误导判断。</p>
+          </div>
+          <div className={`${styles.protocolBadge} ${styles.protocolBadgeHold}`}>
+            Hold / 信息不足
+          </div>
+        </div>
+
+        <section className={styles.missingWorkspace}>
+          <div className={styles.missingWorkspaceHeader}>
+            <div className={styles.missingStatusBadge}>信息不足</div>
+            <p className={styles.missingWorkspaceText}>信息越完整，验证结果越可靠。</p>
+          </div>
+
+          <div className={styles.missingGrid}>
+            {missingCards.map((card) => (
+              <article key={card.label} className={styles.missingCard}>
+                <div className={styles.missingCardTitle}>{card.label}</div>
+                <div className={styles.missingCardStatus}>待补充</div>
+                <div className={styles.missingCardReason}>{card.reason}</div>
+                <div className={styles.missingCardExample}>{card.example}</div>
+              </article>
+            ))}
+          </div>
+
+          <section className={styles.completionFormula}>
+            <span className={styles.formulaToken}>我想验证</span>
+            <p>
+              【<span className={styles.formulaToken}>产品类型</span>】进入【<span className={styles.formulaToken}>目标市场</span>】，面向【
+              <span className={styles.formulaToken}>目标用户</span>】，通过【<span className={styles.formulaToken}>商业模式</span>】，解决【
+              <span className={styles.formulaToken}>核心痛点</span>】。
+            </p>
+          </section>
+
+          <section className={styles.examplePromptList}>
+            <div className={styles.protocolKicker}>Example Prompts</div>
+            {exampleList().map((item) => (
+              <div key={item} className={styles.examplePromptItem}>{item}</div>
+            ))}
+          </section>
+        </section>
+      </section>
+    );
+  }
+
+  const coverageCount = protocol.evidenceCoverage.filter((item) => item.status === 'covered').length;
+  const maxRisk = protocol.probabilityView.negativeFactors[0] ?? '待补齐证据';
+  const nextStage = protocol.mvpStages[0];
+
+  const tracks = [
+    { title: '市场', summary: shortText(protocol.marketContext.summary, 22), status: statusTone(protocol.evidenceCoverage[0]?.status ?? 'missing') },
+    { title: '用户', summary: shortText(protocol.userSegment.primaryUser, 22), status: statusTone(protocol.evidenceCoverage[2]?.status ?? 'missing') },
+    { title: '痛点', summary: shortText(protocol.painPoint.hypothesis, 22), status: statusTone(protocol.evidenceCoverage[2]?.status ?? 'missing') },
+    { title: '价格', summary: shortText(protocol.pricingHypothesis.testRange, 22), status: statusTone(protocol.evidenceCoverage[3]?.status ?? 'missing') },
+    { title: '竞品', summary: shortText(protocol.competitorPattern.openGap, 22), status: statusTone(protocol.evidenceCoverage[1]?.status ?? 'missing') },
+    { title: '渠道', summary: shortText(protocol.supplyDemand.demandSignal, 22), status: statusTone(protocol.evidenceCoverage[4]?.status ?? 'missing') },
+  ] as const;
+
+  const stages = protocol.mvpStages.slice(0, 3);
 
   return (
-    <section className={styles.protocolPanel} aria-label="市场 MVP 调研协议">
+    <section className={styles.consoleShell} aria-label="Market MVP Validation Flow Canvas">
       <div className={styles.protocolHeader}>
         <div className={styles.protocolHeaderMain}>
-          <div className={styles.protocolKicker}>Market MVP Validation Console</div>
+          <div className={styles.protocolKicker}>Market MVP Validation Flow Canvas</div>
           <h2 className={styles.protocolTitle}>{protocol.judgmentLabel}</h2>
-          <p className={styles.protocolReason}>{protocol.judgmentReason}</p>
+          <p className={styles.protocolReason}>{shortText(protocol.judgmentReason, 32)}</p>
         </div>
-        <div className={`${styles.protocolBadge} ${protocol.canJudge ? styles.protocolBadgeReady : styles.protocolBadgeHold}`}>
-          {protocol.canJudge ? 'Ready' : 'Hold'}
-        </div>
+        <div className={`${styles.protocolBadge} ${styles.protocolBadgeReady}`}>Ready</div>
       </div>
 
-      <div className={styles.decisionBar} aria-label="决策条">
-        <div className={styles.decisionBarItem}>
-          <span>输入完整度</span>
-          <strong>{protocol.missingInputs.length === 0 ? 'ready' : protocol.missingInputs.length <= 2 ? 'weak' : 'missing'}</strong>
-        </div>
-        <div className={styles.decisionBarItem}>
-          <span>证据覆盖度</span>
-          <strong>{protocol.evidenceCoverage.filter((item) => item.status === 'covered').length}/6</strong>
-        </div>
-        <div className={styles.decisionBarItem}>
-          <span>可测试性</span>
-          <strong>{protocol.canJudge ? 'ready' : 'missing'}</strong>
-        </div>
-      </div>
-
-      <section className={styles.readinessStrip} aria-label="验证前置条件">
-        {readiness.map((item) => (
-          <article key={item.label} className={`${styles.readinessItem} ${styles[`readinessItem--${readinessStatus(item.status)}`]}`}>
-            <span className={styles.readinessDot} aria-hidden="true" />
-            <div>
-              <strong>{mapLabel(item.label)}</strong>
-              <p>{statusLabel(item.status)}</p>
-            </div>
-          </article>
-        ))}
+      <section className={styles.validationSummaryBar}>
+        <article className={styles.summaryItem}><span className={styles.summaryLabel}>当前状态</span><strong className={styles.summaryValue}>{shortText(protocol.judgmentLabel, 12)}</strong><div className={styles.summaryHint}>{shortText(protocol.judgmentReason, 16)}</div><span className={styles.summaryDot} /></article>
+        <article className={styles.summaryItem}><span className={styles.summaryLabel}>证据覆盖</span><strong className={styles.summaryValue}>{coverageCount}/6</strong><div className={styles.summaryHint}>覆盖越高，判断越稳。</div><span className={styles.summaryDot} /></article>
+        <article className={styles.summaryItem}><span className={styles.summaryLabel}>最大风险</span><strong className={styles.summaryValue}>{shortText(maxRisk, 12)}</strong><div className={styles.summaryHint}>先修最弱项。</div><span className={styles.summaryDot} /></article>
+        <article className={styles.summaryItem}><span className={styles.summaryLabel}>下一步实验</span><strong className={styles.summaryValue}>{shortText(nextStage?.stage ?? '待补齐', 12)}</strong><div className={styles.summaryHint}>{shortText(nextStage?.goal ?? '先补齐输入。', 16)}</div><span className={styles.summaryDot} /></article>
       </section>
 
-      {protocol.missingInputs.length > 0 ? (
-        <section className={styles.protocolSection}>
-          <div className={styles.protocolLabel}>Missing Inputs</div>
-          <div className={styles.protocolValue}>{protocol.missingInputs.join(' · ')}</div>
-        </section>
-      ) : null}
-
-      <section className={styles.hypothesisMap} aria-label="假设地图">
-        {hypothesisCards.map((card) => (
-          <article key={card.title} className={`${styles.hypothesisCard} ${styles[`hypothesisCard--${card.status}`]}`}>
-            <div className={styles.hypothesisEyebrow}>{card.eyebrow}</div>
-            <div className={styles.hypothesisTopRow}>
-              <h3>{card.title}</h3>
-              <span className={styles.hypothesisStatus}>{card.verdict}</span>
-            </div>
-            <p>{card.keyLine}</p>
-          </article>
-        ))}
-      </section>
-
-      <section className={styles.protocolSection}>
-        <div className={styles.protocolLabel}>Evidence Coverage Board</div>
-        <div className={styles.evidenceCoverageGrid}>
-          {protocol.evidenceCoverage.map((item) => (
-            <article key={item.label} className={styles.evidenceItem}>
-              <div className={`${styles.evidenceStatus} ${item.status === 'covered' ? styles.evidenceCovered : item.status === 'weak' ? styles.evidenceWeak : item.status === 'missing' ? styles.evidenceMissing : styles.evidenceInferred}`}>
-                <span>{statusLabel(item.status)}</span>
-              </div>
-              <strong>{mapLabel(item.label)}</strong>
-              <p>{item.reason}</p>
-              <div className={styles.evidenceMeter} aria-hidden="true">
-                <span className={styles.evidenceTrack}>
-                  <span className={`${styles.evidenceFill} ${meterClass(item.status)}`} style={{ width: meterValue(item.status) }} />
-                </span>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className={styles.protocolSection}>
-        <div className={styles.protocolLabel}>MVP Stage Timeline</div>
-        <div className={styles.stageTimeline}>
-          {protocol.mvpStages.map((stage, index) => (
-            <article key={stage.stage} className={styles.mvpStageCard}>
-              <div className={styles.stageNode}>
-                <div className={styles.stageNumber}>{String(index + 1).padStart(2, '0')}</div>
-                <div className={styles.stageMeta}>
-                  <div className={styles.stageMetaTop}>
-                    <strong>{stage.stage}</strong>
-                    <span>{stage.timebox}</span>
+      <div className={styles.flowCanvasLayout}>
+        <section className={styles.flowMatrix}>
+          <div className={styles.flowMatrixHeader}>
+            <span>Hypothesis Tracks</span>
+            <div className={styles.flowStageCells}><span>已框定</span><span>待实验</span><span>证据收集</span><span>决策门槛</span></div>
+          </div>
+          {tracks.map((track, index) => (
+            <div key={track.title} className={styles.flowTrackRow}>
+              <div className={styles.flowTrackLabel}><strong>{track.title}</strong><span>{track.summary}</span></div>
+              <div className={styles.flowStageCells}>
+                {['framed', 'planned', 'weak', 'pending'].map((stage) => (
+                  <div key={stage} className={`${styles.flowCell} ${styles[`flowNode${stage[0].toUpperCase()}${stage.slice(1)}`]}`}>
+                    <span className={styles.flowNode} />
+                    <small>{index === 0 && stage === 'framed' ? '框定' : index === 0 && stage === 'planned' ? '实验' : index === 0 && stage === 'weak' ? '弱证据' : index === 0 && stage === 'pending' ? '门槛' : ''}</small>
                   </div>
-                  <p>{stage.goal}</p>
+                ))}
+              </div>
+            </div>
+          ))}
+        </section>
+
+        <aside className={styles.decisionRail}>
+          <div className={styles.decisionRailCard}>
+            <div className={styles.protocolKicker}>Next Action</div>
+            <div className={styles.nextActionCard}>
+              <strong>{nextStage?.stage ?? '补齐输入后验证'}</strong>
+              <p>{shortText(nextStage?.goal ?? '先补齐关键输入。', 34)}</p>
+              <span>{nextStage?.timebox ?? '当前不进入市场测试'}</span>
+            </div>
+          </div>
+          <div className={styles.decisionRailCard}>
+            <div className={styles.protocolKicker}>Why This First</div>
+            <p>价格和渠道判断都依赖痛点是否真实，因此先验证痛点与需求。</p>
+          </div>
+          <div className={styles.decisionRailCard}>
+            <div className={styles.protocolKicker}>Stop Gate</div>
+            <div className={styles.stopGateCard}>{shortText(nextStage?.stopCondition ?? protocol.finalStopConditions[0] ?? '继续生成会误导决策', 42)}</div>
+          </div>
+        </aside>
+      </div>
+
+      <section className={styles.experimentPath}>
+        <div className={styles.experimentPathHeader}>
+          <div className={styles.protocolKicker}>MVP Experiment Path</div>
+          <h3 className={styles.panelTitle}>三阶段验证路径</h3>
+        </div>
+        <div className={styles.experimentStepCard}>
+          {stages.map((stage, index) => (
+            <article key={stage.stage} className={styles.experimentStepBody}>
+              <div className={styles.experimentStepNumber}>{String(index + 1).padStart(2, '0')}</div>
+              <div className={styles.experimentStepText}>
+                <div className={styles.experimentStepTitleRow}><strong>{shortText(stage.stage, 18)}</strong><span>{stage.timebox}</span></div>
+                <div className={styles.experimentColumns}>
+                  <div className={styles.experimentColumn}><span className={styles.protocolLabel}>验证假设</span><p>{shortText(stage.goal, 36)}</p></div>
+                  <div className={styles.experimentColumn}><span className={styles.protocolLabel}>测试动作</span><ul>{stage.actions.slice(0, 2).map((action) => <li key={action}>{shortText(action, 22)}</li>)}</ul></div>
+                  <div className={styles.experimentGateRow}><div className={styles.passMiniGate}><strong>通过</strong><p>{shortText(stage.passCondition, 22)}</p></div><div className={styles.stopMiniGate}><strong>停止</strong><p>{shortText(stage.stopCondition, 22)}</p></div></div>
                 </div>
               </div>
-              <div className={styles.stageSplit}>
-                <section>
-                  <div className={styles.protocolLabel}>Actions</div>
-                  <ul className={styles.mvpActionList}>
-                    {stage.actions.map((action) => <li key={action}>{action}</li>)}
-                  </ul>
-                </section>
-                <section className={styles.passStopGrid}>
-                  <div className={styles.passBox}>
-                    <strong>Pass</strong>
-                    <p>{stage.passCondition}</p>
-                  </div>
-                  <div className={styles.stopBox}>
-                    <strong>Stop</strong>
-                    <p>{stage.stopCondition}</p>
-                  </div>
-                </section>
-              </div>
             </article>
           ))}
         </div>
       </section>
 
-      <section className={styles.protocolSection}>
-        <div className={styles.protocolLabel}>Pass / Stop Guardrails</div>
-        <div className={styles.guardrailGrid}>
-          <article className={styles.guardrailPass}>
-            <h3>继续条件 / Pass Signals</h3>
-            <ul>
-              {passSignals.map((item) => <li key={item}>{item}</li>)}
-            </ul>
-          </article>
-          <article className={styles.guardrailStop}>
-            <h3>停止条件 / Stop Signals</h3>
-            <ul className={styles.stopConditionList}>
-              {protocol.finalStopConditions.map((item) => <li key={item}>{item}</li>)}
-            </ul>
-          </article>
-        </div>
-      </section>
+      <details className={styles.collapsedProtocolDetails}>
+        <summary>查看完整协议细节</summary>
+        <div className={styles.legacyReferenceDetails}>
+          <section className={styles.evidenceImpactBoard}>
+            <div className={styles.panelHeaderRow}><div><div className={styles.protocolKicker}>Evidence Coverage</div><h3 className={styles.panelTitle}>证据对判断的影响</h3></div></div>
+            <div className={styles.evidenceImpactGrid}>
+              {protocol.evidenceCoverage.map((item) => (
+                <article key={item.label} className={`${styles.evidenceImpactItem} ${styles[`evidenceImpactItem--${item.status}`]}`}>
+                  <div className={styles.evidenceImpactTopRow}><strong>{item.label}</strong><span className={styles.evidenceStatusPill}>{statusLabel(item.status)}</span></div>
+                  <div className={styles.evidenceImpactMeta}>影响：{item.label.includes('市场') ? '市场' : item.label.includes('用户') || item.label.includes('痛点') ? '用户' : item.label.includes('价格') ? '价格' : item.label.includes('渠道') ? '渠道' : '合规'}</div>
+                  <p>{shortText(item.reason, 36)}</p>
+                  <div className={styles.evidenceMeter}><span className={styles.impactTrack}><span className={styles.impactFill} style={{ width: meterValue(item.status) }} /></span></div>
+                </article>
+              ))}
+            </div>
+          </section>
 
-      <section className={styles.protocolSection}>
-        <div className={styles.protocolLabel}>Confidence Panel</div>
-        <div className={styles.confidencePanel}>
-          <div className={styles.confidenceTopRow}>
-            <div>
-              <div className={styles.protocolValue}>当前判断：{protocol.probabilityView.label}</div>
-              <div className={styles.protocolValue}>信心等级：{confidenceLabel(protocol.probabilityView.confidence)}</div>
+          <section className={styles.confidenceConsole}>
+            <div className={styles.panelHeaderRow}><div><div className={styles.protocolKicker}>Probability</div><h3 className={styles.panelTitle}>信心与偏向</h3></div><div className={styles.protocolValue}>当前信心：{confidenceLabel(protocol.probabilityView.confidence)}</div></div>
+            <div className={styles.confidenceSegments} aria-hidden="true">{[0, 1, 2].map((index) => <span key={index} className={`${styles.confidenceSegment} ${index < (protocol.probabilityView.confidence === 'high' ? 3 : protocol.probabilityView.confidence === 'medium' ? 2 : 1) ? styles.confidenceSegmentActive : ''}`} />)}</div>
+            <div className={styles.confidenceColumns}>
+              <section><div className={styles.protocolLabel}>正向因素</div><div className={styles.protocolPills}>{protocol.probabilityView.positiveFactors.map((item) => <span key={item} className={styles.protocolPill}>{shortText(item, 22)}</span>)}</div></section>
+              <section><div className={styles.protocolLabel}>负向因素</div><div className={styles.protocolPills}>{protocol.probabilityView.negativeFactors.map((item) => <span key={item} className={styles.protocolPill}>{shortText(item, 22)}</span>)}</div></section>
             </div>
-            <div className={styles.confidenceMeter} aria-label={`信心等级 ${confidenceLabel(protocol.probabilityView.confidence)}`}>
-              <span className={`${styles.confidenceSegment} ${protocol.probabilityView.confidence !== 'low' ? styles.confidenceSegmentActive : ''}`} />
-              <span className={`${styles.confidenceSegment} ${protocol.probabilityView.confidence === 'medium' || protocol.probabilityView.confidence === 'high' ? styles.confidenceSegmentActive : ''}`} />
-              <span className={`${styles.confidenceSegment} ${protocol.probabilityView.confidence === 'high' ? styles.confidenceSegmentActive : ''}`} />
+          </section>
+
+          <section className={styles.guardrailConsole}>
+            <div className={styles.panelHeaderRow}><div><div className={styles.protocolKicker}>Stop Conditions</div><h3 className={styles.panelTitle}>决策门</h3></div></div>
+            <div className={styles.guardrailGrid}>
+              <article className={styles.guardrailColumn}><h4>继续信号</h4><ul>{protocol.mvpStages.map((stage) => stage.passCondition).slice(0, 4).map((item, index) => <li key={`${item}-${index}`}>{shortText(item, 34)}</li>)}</ul></article>
+              <article className={styles.guardrailColumn}><h4>停止信号</h4><ul>{protocol.finalStopConditions.slice(0, 4).map((item, index) => <li key={`${item}-${index}`}>{shortText(item, 34)}</li>)}</ul></article>
             </div>
-          </div>
-          <div className={styles.confidenceColumns}>
-            <section>
-              <div className={styles.protocolLabel}>正向因素</div>
-              <div className={styles.protocolPills}>
-                {protocol.probabilityView.positiveFactors.map((item) => <span key={item} className={styles.protocolPill}>{item}</span>)}
-              </div>
-            </section>
-            <section>
-              <div className={styles.protocolLabel}>负向因素</div>
-              <div className={styles.protocolPills}>
-                {protocol.probabilityView.negativeFactors.map((item) => <span key={item} className={styles.protocolPill}>{item}</span>)}
-              </div>
-            </section>
-          </div>
+          </section>
         </div>
-      </section>
+      </details>
+
+      <details className={styles.legacyReferenceDetails}>
+        <summary>查看旧版评分参考</summary>
+        <p>以下为旧版评分视图，仅作为补充参考，最终判断以 Market MVP Flow Canvas 为主。</p>
+      </details>
     </section>
   );
 }
