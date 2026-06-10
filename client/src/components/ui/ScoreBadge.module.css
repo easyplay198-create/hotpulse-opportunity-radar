@@ -2,20 +2,21 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 10px;
-  border: 1px solid var(--border-subtle, #e2e8f0);
-  border-radius: 10px;
-  background: var(--bg-surface, #fff);
-  color: var(--text-primary, #0f172a);
+  padding: 7px 11px;
+  border: 1px solid #dbe5f0;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
 }
 
 .track {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
-  border: 2px solid rgba(31, 79, 143, 0.18);
+  border: 1px solid rgba(31, 79, 143, 0.16);
   display: grid;
   place-items: center;
+  flex: 0 0 auto;
 }
 
 .fill {
@@ -40,7 +41,7 @@
 .label {
   font-size: 12px;
   line-height: 1.2;
-  color: var(--text-muted, #64748b);
+  color: #64748b;
   white-space: nowrap;
 }
 
@@ -48,7 +49,13 @@
 .sm .fill { width: 12px; height: 12px; }
 .sm .score { font-size: 14px; }
 
-.lg { padding: 8px 12px; }
-.lg .track { width: 34px; height: 34px; }
-.lg .fill { width: 20px; height: 20px; }
-.lg .score { font-size: 18px; }
+.md { padding: 7px 11px; }
+.md .track { width: 30px; height: 30px; }
+.md .fill { width: 16px; height: 16px; }
+.md .score { font-size: 16px; }
+
+.lg { padding: 10px 14px; border-radius: 14px; }
+.lg .track { width: 42px; height: 42px; }
+.lg .fill { width: 22px; height: 22px; }
+.lg .score { font-size: 22px; }
+.lg .label { font-size: 12px; }
