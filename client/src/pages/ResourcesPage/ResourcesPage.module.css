@@ -1,0 +1,91 @@
+.page {
+  display: grid;
+  gap: 20px;
+}
+
+.headerCard {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid #dbe5f0;
+  border-radius: 20px;
+  background: #fff;
+}
+
+.kicker {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.subtitle {
+  margin: 0;
+  color: #475569;
+  line-height: 1.6;
+  max-width: 72ch;
+}
+
+.noteRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.noteRow span {
+  display: inline-flex;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.card {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid #dbe5f0;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.card h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.card p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.65;
+}
+
+.optional {
+  color: #1f4f8f !important;
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

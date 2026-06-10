@@ -15,7 +15,7 @@ export function TopNav() {
     { label: '机会库', href: withSource('/opportunities') },
     { label: '验证工具', href: withSource('/analyze') },
     { label: '案例观察', href: withSource('/cases') },
-    { label: '资源中心', href: withSource('/resources') },
+    { label: '执行支持', href: withSource('/resources') },
     { label: '市场信号榜', href: withSource('/signals') },
     { label: '报告页', href: withSource('/report') },
   ];
@@ -25,11 +25,11 @@ export function TopNav() {
       <div className={styles.brandRow}>
         <div>
           <h1 className={styles.title}>HotPulse</h1>
-          <p className={styles.subtitle}>出海商机雷达与验证系统</p>
+          <p className={styles.subtitle}>出海前市场验证系统</p>
         </div>
         <div className={styles.actions}>
-          <a className={styles.ghostButton} href={withSource('/analyze')}>登录</a>
-          <a className={styles.primaryButton} href={withSource('/analyze')}>开始分析</a>
+          <a className={styles.ghostButton} href={withSource('/analyze')}>查看验证工具</a>
+          <a className={styles.primaryButton} href={withSource('/analyze')}>开始验证</a>
         </div>
       </div>
       <nav className={styles.navLinks} aria-label="主导航">
