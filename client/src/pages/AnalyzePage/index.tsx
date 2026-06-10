@@ -6,6 +6,7 @@ import { AnalyzeAdvancedOptions } from '../../components/analyze/AnalyzeAdvanced
 import { AnalyzeProgressPanel } from '../../components/analyze/AnalyzeProgressPanel';
 import { AnalyzeWorkbench } from '../../components/analyze/AnalyzeWorkbench';
 import { AnalyzeActionReport } from '../../components/analyze/AnalyzeActionReport';
+import { AnalyzeInputQualityGate } from '../../components/analyze/AnalyzeInputQualityGate';
 import type { AnalyzeProfile, AnalyzeResponse } from '../../types/analyze';
 import styles from './AnalyzePage.module.css';
 
@@ -42,8 +43,32 @@ function normalizeViewResult(result: AnalyzeResponse | null): AnalyzeResponse | 
       targetMarket: '未明确',
       evidenceStrength: 'low',
       summary: '当前结果缺少足够信息。',
-      nextStep: '请继续补充输入后重试。',
+      nextStep: '请继续补充输入后重试.',
     },
+  };
+}
+
+function inspectInputQuality(query: string) {
+  const text = query.trim();
+
+  const hasTargetMarket = /日本|韩国|台湾|东南亚|美国|欧美|巴西|中东|土耳其|印度|印尼|泰国|越南|Global|Japan|US|SEA|Europe/i.test(text);
+  const hasUser = /用户|开发者|学生|老师|团队|企业|卖家|创作者|运营|设计师|家长|老人|儿童|独居|B端|C端/i.test(text);
+  const hasProduct = /AI|SaaS|工具|App|订阅|游戏|短剧|支付|机器人|机器狗|硬件|插件|平台|软件/i.test(text);
+  const hasBusiness = /订阅|付费|广告|佣金|一次性|会员|充值|收款|支付|价格|客单价|售价|月费/i.test(text);
+  const hasScenario = /用于|帮助|解决|提高|降低|自动|生成|管理|陪伴|学习|办公|营销|获客|养老|设计|素材|效率/i.test(text);
+
+  const missing: string[] = [];
+
+  if (!hasTargetMarket) missing.push('目标市场');
+  if (!hasUser) missing.push('目标用户');
+  if (!hasProduct) missing.push('产品类型');
+  if (!hasScenario) missing.push('使用场景 / 核心痛点');
+  if (!hasBusiness) missing.push('商业模式 / 付费方式');
+
+  return {
+    score: 5 - missing.length,
+    isEnough: missing.length <= 2,
+    missing,
   };
 }
 
@@ -57,6 +82,7 @@ export function AnalyzePage() {
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
+  const [inputQuality, setInputQuality] = useState<{ missing: string[]; query: string } | null>(null);
 
   useEffect(() => {
     setSource(getSource());
@@ -73,12 +99,34 @@ export function AnalyzePage() {
     return () => window.clearInterval(timer);
   }, [analyzing]);
 
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    setInputQuality(null);
+  };
+
+  const applyQualityExample = (value: string) => {
+    setQuery(value);
+    setInputQuality(null);
+    window.sessionStorage.setItem(ANALYZE_QUERY_KEY, value);
+  };
+
   const runAnalyze = async () => {
     const normalizedQuery = query.trim();
     if (!normalizedQuery) {
       setError('请先输入产品、想法或目标市场。');
       return;
     }
+
+    const quality = inspectInputQuality(normalizedQuery);
+    if (!quality.isEnough) {
+      setInputQuality({ missing: quality.missing, query: normalizedQuery });
+      setResult(null);
+      setError(null);
+      setAnalyzing(false);
+      setActiveStep(0);
+      return;
+    }
+
     setError(null);
     setResult(null);
     setAnalyzing(true);
@@ -98,6 +146,7 @@ export function AnalyzePage() {
     setQuery('');
     setResult(null);
     setError(null);
+    setInputQuality(null);
     setActiveStep(0);
     window.sessionStorage.removeItem(ANALYZE_QUERY_KEY);
   };
@@ -108,7 +157,10 @@ export function AnalyzePage() {
     <AppShell>
       <div className={styles.page}>
         <TopNav />
-        <AnalyzeWorkbench query={query} source={source} analyzing={analyzing} onQueryChange={setQuery} onSubmit={runAnalyze} onReset={resetAll} />
+        <AnalyzeWorkbench query={query} source={source} analyzing={analyzing} onQueryChange={handleQueryChange} onSubmit={runAnalyze} onReset={resetAll} />
+        {inputQuality && !viewResult ? (
+          <AnalyzeInputQualityGate missing={inputQuality.missing} query={inputQuality.query} onExampleApply={applyQualityExample} />
+        ) : null}
         {!viewResult ? <AnalyzeAdvancedOptions profile={profile} onChange={setProfile} /> : null}
 
         {analyzing ? <AnalyzeProgressPanel activeIndex={activeStep} done={false} steps={viewResult?.steps} /> : null}
