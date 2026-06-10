@@ -118,12 +118,17 @@ export function AnalyzePage() {
       <div className={styles.page}>
         <TopNav />
         <AnalyzeWorkbench query={query} source={source} analyzing={analyzing} onQueryChange={handleQueryChange} onSubmit={runAnalyze} onReset={resetAll} />
-        {inputQuality && !viewResult ? <AnalyzeInputQualityGate missing={inputQuality.missing} query={inputQuality.query} onExampleApply={applyQualityExample} /> : null}
-        {!viewResult ? <AnalyzeAdvancedOptions profile={profile} onChange={setProfile} /> : null}
-        {analyzing ? <AnalyzeProgressPanel activeIndex={activeStep} done={false} steps={viewResult?.steps} /> : null}
-        {protocol ? <MarketMvpResearchProtocolPanel protocol={protocol} /> : null}
+        {inputQuality ? (
+          <AnalyzeInputQualityGate missing={inputQuality.missing} query={inputQuality.query} onExampleApply={applyQualityExample} />
+        ) : (
+          <>
+            {!viewResult ? <AnalyzeAdvancedOptions profile={profile} onChange={setProfile} /> : null}
+            {analyzing ? <AnalyzeProgressPanel activeIndex={activeStep} done={false} steps={viewResult?.steps} /> : null}
+            {protocol ? <MarketMvpResearchProtocolPanel protocol={protocol} /> : null}
+          </>
+        )}
         {error ? <section className={styles.errorCard}><h2>分析服务暂时不可用</h2><p>请稍后重试或查看当前市场信号。</p><div className={styles.actionsRow}><button type="button" className={styles.primaryButton} onClick={runAnalyze}>重新分析</button><a className={styles.ghostButton} href={`/signals?source=${source}`}>查看市场信号</a></div></section> : null}
-        {viewResult && protocol?.canJudge ? <AnalyzeActionReport result={viewResult} source={source} /> : null}
+        {viewResult && protocol?.canJudge ? <details className={styles.legacyDecisionDetails}><summary className={styles.legacyDecisionSummary}>查看补充决策画布</summary><div className={styles.legacyDecisionBody}><p className={styles.legacyDecisionSummaryText}>以下为旧版评分视图，仅作为补充参考，最终判断以 Market MVP Protocol 为主。</p><AnalyzeActionReport result={viewResult} source={source} /></div></details> : null}
       </div>
     </AppShell>
   );
