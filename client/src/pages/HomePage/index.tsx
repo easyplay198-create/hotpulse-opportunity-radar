@@ -182,6 +182,7 @@ function HomeSignalScanner() {
         <circle className={styles.rimLight} cx="120" cy="120" r="103" />
         <circle className={styles.scanCore} cx="120" cy="120" r="24" />
         <circle className={styles.coreDot} cx="120" cy="120" r="5" />
+        <text className={styles.scanCoreText} x="120" y="121" textAnchor="middle">RADAR</text>
       </svg>
       <div className={`${styles.scanNode} ${styles.nodeHn}`}><span className={styles.scanDot}></span><span>HN</span></div>
       <div className={`${styles.scanNode} ${styles.nodeStore}`}><span className={styles.scanDot}></span><span>App Store</span></div>
@@ -438,15 +439,25 @@ export function HomePage() {
                   <p className={styles.pathDesc}>每天沉淀市场信号和可验证方向，帮你发现值得进一步判断的机会。</p>
                   <a className={styles.pathAction} href={withSource('/briefing')}>查看今日简报</a>
                 </div>
-                <div className={styles.pathVisual}>
-                  <div className={styles.miniSignal}>
-                    <div className={styles.miniSignalRow}><span className={styles.miniChip}>HN</span><span className={`${styles.miniBar} ${styles.miniBarA}`}><i></i></span><span className={styles.miniLabel}>日本 AI 工具讨论上升</span></div>
-                    <div className={styles.miniSignalRow}><span className={styles.miniChip}>App Store</span><span className={`${styles.miniBar} ${styles.miniBarB}`}><i></i></span><span className={styles.miniLabel}>轻量内容工具评分提升</span></div>
-                    <div className={styles.miniSignalRow}><span className={styles.miniChip}>PH</span><span className={`${styles.miniBar} ${styles.miniBarC}`}><i></i></span><span className={styles.miniLabel}>设计工具竞品更新</span></div>
+                <div className={styles.pathSupport}>
+                  <div className={styles.supportHeader}>
+                    <span>Advisor Support</span>
+                    <strong>发现方向</strong>
+                  </div>
+                  <div className={styles.supportSnapshot}>
+                    <div className={styles.miniSignal}>
+                      <div className={styles.miniSignalRow}><span className={styles.miniChip}>HN</span><span className={`${styles.miniBar} ${styles.miniBarA}`}><i></i></span><span className={styles.miniLabel}>日本 AI 工具讨论上升</span></div>
+                      <div className={styles.miniSignalRow}><span className={styles.miniChip}>App Store</span><span className={`${styles.miniBar} ${styles.miniBarB}`}><i></i></span><span className={styles.miniLabel}>轻量内容工具评分提升</span></div>
+                      <div className={styles.miniSignalRow}><span className={styles.miniChip}>PH</span><span className={`${styles.miniBar} ${styles.miniBarC}`}><i></i></span><span className={styles.miniLabel}>设计工具竞品更新</span></div>
+                    </div>
+                  </div>
+                  <div className={styles.supportMetrics}>
+                    <span>Action：进入验证</span>
+                    <span>Risk：噪音过滤</span>
+                    <span>Evidence：信号来源</span>
                   </div>
                 </div>
               </article>
-              <div className={styles.rowConnector}>↓</div>
               <article className={styles.pathRow}>
                 <div className={styles.pathMain}>
                   <div className={styles.pathStep}>Step 02</div>
@@ -454,15 +465,25 @@ export function HomePage() {
                   <p className={styles.pathDesc}>把方向拆成假设、风险、验证动作和停止门槛。</p>
                   <a className={styles.pathAction} href={withSource('/analyze')}>开始验证</a>
                 </div>
-                <div className={styles.pathVisual}>
-                  <div className={styles.miniValidation}>
-                    <div className={styles.miniBadge}>可以验证</div>
-                    <div className={styles.miniFlow}><div className={styles.miniStep}><span>Input</span><small>方向</small></div><div className={styles.miniStep}><span>Risk</span><small>价格</small></div><div className={styles.miniStep}><span>Action</span><small>访谈</small></div></div>
-                    <div className={styles.miniRisk}><div className={styles.riskMeta}><span>最大风险：价格接受度</span><span>{summary.averageScore || 64}%</span></div><div className={styles.riskBar}><i></i></div></div>
+                <div className={styles.pathSupport}>
+                  <div className={styles.supportHeader}>
+                    <span>Advisor Support</span>
+                    <strong>判断方向</strong>
+                  </div>
+                  <div className={styles.supportSnapshot}>
+                    <div className={styles.miniValidation}>
+                      <div className={styles.miniBadge}>Validatable</div>
+                      <div className={styles.miniFlow}><div className={styles.miniStep}><span>Input</span><small>方向</small></div><div className={styles.miniStep}><span>Risk</span><small>价格</small></div><div className={styles.miniStep}><span>Action</span><small>访谈</small></div></div>
+                      <div className={styles.miniRisk}><div className={styles.riskMeta}><span>最大风险：价格接受度</span><span>{summary.averageScore || 64}%</span></div><div className={styles.riskBar}><i></i></div></div>
+                    </div>
+                  </div>
+                  <div className={styles.supportMetrics}>
+                    <span>Action：24h 访谈</span>
+                    <span>Risk：支付 / 本地化</span>
+                    <span>Evidence：待补强</span>
                   </div>
                 </div>
               </article>
-              <div className={styles.rowConnector}>↓</div>
               <article className={styles.pathRow}>
                 <div className={styles.pathMain}>
                   <div className={styles.pathStep}>Step 03</div>
@@ -470,11 +491,22 @@ export function HomePage() {
                   <p className={styles.pathDesc}>沉淀判断结论，并在需要时连接支付、本地化、上架和测试执行支持。</p>
                   <a className={styles.pathAction} href="#advisor">查看执行支持</a>
                 </div>
-                <div className={styles.pathVisual}>
-                  <div className={styles.miniReport}>
-                    <div className={styles.miniTri}><span className={styles.active}>继续</span><span>暂缓</span><span>停止</span></div>
-                    <div className={styles.miniReportLine}><strong>下一步</strong><span>顾问支持可选</span></div>
-                    <div className={styles.visualTags}><span className={styles.tagGreen}>支付适配</span><span>本地化</span><span>上架测试</span><span className={styles.tagOrange}>Token 成本</span><span>执行支持</span></div>
+                <div className={styles.pathSupport}>
+                  <div className={styles.supportHeader}>
+                    <span>Advisor Support</span>
+                    <strong>推进下一步</strong>
+                  </div>
+                  <div className={styles.supportSnapshot}>
+                    <div className={styles.miniReport}>
+                      <div className={styles.miniTri}><span className={styles.active}>继续</span><span>暂缓</span><span>停止</span></div>
+                      <div className={styles.miniReportLine}><strong>执行入口</strong><span>顾问支持可选</span></div>
+                      <div className={styles.visualTags}><span className={styles.tagGreen}>支付适配</span><span>本地化</span><span>上架测试</span><span className={styles.tagOrange}>Token 成本</span><span>执行支持</span></div>
+                    </div>
+                  </div>
+                  <div className={styles.supportMetrics}>
+                    <span>Action：生成报告</span>
+                    <span>Risk：上架 / 成本</span>
+                    <span>Evidence：结论沉淀</span>
                   </div>
                 </div>
               </article>
