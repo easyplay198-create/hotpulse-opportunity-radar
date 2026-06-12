@@ -377,10 +377,27 @@ function loadAnalyzeItems(source) {
   }).catch(() => ({ source: 'fallback', items: getMockOpportunities().map(enhanceWithMarketKnowledge) }));
 }
 
+function detectTargetMarket(query, profile = {}) {
+  const detect = (value) => {
+    const text = String(value || '').toLowerCase();
+    if (/日本|japan|日语/.test(text)) return '日本';
+    if (/台湾|taiwan/.test(text)) return '台湾';
+    if (/泰国|thailand/.test(text)) return '泰国';
+    if (/印尼|indonesia/.test(text)) return '印尼';
+    if (/东南亚|southeast asia|\bsea\b|越南|vietnam|菲律宾|philippines/.test(text)) return '东南亚';
+    if (/美国|usa|\bus\b/.test(text)) return '美国';
+    if (/欧美|欧洲|europe/.test(text)) return '欧美';
+    if (/拉美|latin america|巴西|brazil/.test(text)) return '拉美';
+    if (/中东|middle east/.test(text)) return '中东';
+    return null;
+  };
+  return detect(query) || detect(profile.targetMarket) || (profile.targetMarket && profile.targetMarket !== 'Global' ? profile.targetMarket : '未明确');
+}
+
 function parseQueryIntent(query, profile = {}) {
   const text = `${query || ''} ${profile.targetMarket || ''}`.toLowerCase();
   const has = (pattern) => pattern.test(text);
-  const targetMarket = has(/日本|japan/) ? '日本' : has(/台湾|taiwan/) ? '台湾' : has(/泰国|thailand/) ? '泰国' : has(/印尼|indonesia/) ? '印尼' : has(/东南亚|southeast asia|\bsea\b/) ? '东南亚' : has(/欧美|美国|\bus\b|europe/) ? '欧美' : has(/拉美|latin america/) ? '拉美' : has(/中东|middle east/) ? '中东' : (profile.targetMarket && profile.targetMarket !== 'Global' ? profile.targetMarket : '未明确');
+  const targetMarket = detectTargetMarket(query, profile);
   let productCategory = '通用工具';
   if (has(/社交|社区|聊天|匿名聊天|交友|约会|dating|陌生人社交|兴趣社区|陪伴|搞基|gay|同性|lgbtq|男同|queer/)) productCategory = '社交 / dating 产品';
   else if (has(/开发者|插件|workflow|github|vscode|api|代码|ide/)) productCategory = '开发者工具 / 插件';
@@ -514,6 +531,309 @@ function buildRuleAnalyzeResponse({ query, profile, source, loaded }) {
   };
 }
 
+function isValidExternalUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function metadataNumber(metadata, keys) {
+  for (const key of keys) {
+    const value = metadata?.[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value);
+  }
+  return 0;
+}
+
+function normalizeEvidenceSourceType(evidence, sourceMode) {
+  const raw = `${evidence?.source || ''} ${evidence?.type || ''} ${evidence?.sourceType || ''}`.toLowerCase();
+  if (raw.includes('user_input')) return 'user_input';
+  if (sourceMode === 'mock') return 'mock_signal';
+  if (raw.includes('hacker') || raw.includes('hn') || raw.includes('community')) return 'community';
+  if (raw.includes('itunes') || raw.includes('app store') || raw.includes('apple') || raw.includes('app_store')) return 'app_store';
+  if (raw.includes('payment')) return 'payment_knowledge';
+  if (raw.includes('localization')) return 'localization_knowledge';
+  if (raw.includes('compliance') || raw.includes('policy')) return 'compliance_knowledge';
+  if (raw.includes('cost') || raw.includes('token')) return 'ai_cost_knowledge';
+  if (raw.includes('mock')) return 'mock_signal';
+  if (sourceMode === 'fallback') return 'fallback_signal';
+  return sourceMode === 'real' ? 'market_signal' : 'mock_signal';
+}
+
+function calculateEvidenceStrength(evidence, sourceMode) {
+  const hasUrl = isValidExternalUrl(evidence?.url);
+  const sourceType = normalizeEvidenceSourceType(evidence, sourceMode);
+  if (sourceType === 'user_input') return 'medium';
+  if (sourceType === 'mock_signal') return 'low';
+
+  const metadata = evidence?.metadata || {};
+  let strength = evidence?.evidenceStrength === 'high' || evidence?.evidenceStrength === 'medium' || evidence?.evidenceStrength === 'low'
+    ? evidence.evidenceStrength
+    : 'low';
+
+  if (sourceType === 'community') {
+    const points = metadataNumber(metadata, ['points', 'score']);
+    const comments = metadataNumber(metadata, ['comments', 'commentCount', 'num_comments']);
+    if (points >= 200 && comments >= 50) strength = 'high';
+    else if (points >= 50 || comments >= 20) strength = 'medium';
+    else strength = 'low';
+  }
+
+  if (sourceType === 'app_store') {
+    const ratingCount = metadataNumber(metadata, ['ratingCount', 'userRatingCount']);
+    const averageRating = metadataNumber(metadata, ['averageRating', 'rating', 'averageUserRating']);
+    if (ratingCount >= 1000 && averageRating >= 4.2) strength = 'high';
+    else if (ratingCount >= 100 || averageRating >= 4.0) strength = 'medium';
+    else strength = 'low';
+  }
+
+  if (!hasUrl && strength === 'high') return 'medium';
+  return strength;
+}
+
+function normalizeJudgmentEvidence(response, sourceMode) {
+  const records = [];
+  const seen = new Set();
+
+  for (const signal of Array.isArray(response.matchedSignals) ? response.matchedSignals : []) {
+    const primary = Array.isArray(signal.evidence) ? signal.evidence[0] : null;
+    if (!primary) continue;
+    const key = `${signal.id || ''}:${primary.url || primary.title || signal.title}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    records.push({
+      title: signal.title || primary.title || '市场信号',
+      summary: signal.summary || primary.note || primary.supports || '可追溯市场信号，用于辅助验证方向。',
+      source: primary.source || signal.source || 'HotPulse',
+      sourceType: normalizeEvidenceSourceType(primary, sourceMode),
+      url: primary.url || null,
+      strength: calculateEvidenceStrength(primary, sourceMode),
+      metadata: primary.metadata || {},
+    });
+  }
+
+  for (const item of Array.isArray(response.evidenceBoard) ? response.evidenceBoard : []) {
+    const key = `${item.sourceItemId || ''}:${item.url || item.title}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    records.push({
+      title: item.title || '验证证据',
+      summary: item.supports || item.note || '用于辅助判断的证据项。',
+      source: item.source || 'HotPulse',
+      sourceType: normalizeEvidenceSourceType(item, sourceMode),
+      url: item.url || null,
+      strength: calculateEvidenceStrength(item, sourceMode),
+      metadata: item.metadata || {},
+    });
+  }
+
+  return records.slice(0, 8);
+}
+
+function extractPainPoint(query) {
+  const text = String(query || '');
+  const direct = text.match(/(?:核心痛点是|痛点是|解决)([^，。,.]{3,40})/);
+  if (direct?.[1]) return direct[1].trim();
+  if (/获客|渠道|投放/.test(text)) return '获客渠道与转化效率待验证';
+  if (/支付|订阅|价格|付费/.test(text)) return '付费意愿与支付路径待验证';
+  if (/本地化|日语|翻译|文化/.test(text)) return '本地化表达与使用习惯待验证';
+  if (/效率|自动化/.test(text)) return '效率提升是否足够强待验证';
+  return '未明确';
+}
+
+function extractPlatformForm(query, intent) {
+  const text = String(query || '');
+  if (/App|移动|iOS|Android/i.test(text)) return '移动 App';
+  if (/Web|网站|SaaS/i.test(text) || intent.productCategory.includes('SaaS')) return 'Web SaaS';
+  if (/插件|VSCode|Chrome/i.test(text)) return '浏览器 / 开发者插件';
+  if (/游戏/.test(text)) return '游戏';
+  if (/API/i.test(text)) return 'API 服务';
+  return '未明确';
+}
+
+function buildJudgmentAssumptions(query, profile, intent) {
+  const targetMarket = detectTargetMarket(query, profile);
+  return {
+    productType: intent.productCategory || '未明确',
+    targetMarket,
+    targetUser: intent.audience || '未明确',
+    painPoint: extractPainPoint(query),
+    businessModel: intent.businessModel || '未明确',
+    acquisitionChannel: /SEO|搜索/i.test(query) ? '搜索 / SEO' : /投放|广告/.test(query) ? '小预算投放' : /社群|社区/.test(query) ? '社群 / 社区' : '未明确',
+    platformForm: extractPlatformForm(query, intent),
+    validationScope: `${profile.validationGoal || '需求是否存在'} / ${profile.budgetRange || '未明确预算'}`,
+  };
+}
+
+function buildMissingInfo(assumptions) {
+  const labels = {
+    productType: '产品类型',
+    targetMarket: '目标市场',
+    targetUser: '目标用户',
+    painPoint: '核心痛点',
+    businessModel: '商业模式',
+    acquisitionChannel: '获客渠道',
+    platformForm: '平台形态',
+  };
+  return Object.entries(labels)
+    .filter(([key]) => !assumptions[key] || assumptions[key] === '未明确')
+    .map(([key, label]) => ({
+      key,
+      label,
+      reason: `${label}仍不明确，当前结论会降级为预验证。`,
+      example: `请补充${label}的具体描述。`,
+    }));
+}
+
+function buildJudgmentVerdict({ mode, response, evidence, missingInfo }) {
+  const highCount = evidence.filter((item) => item.strength === 'high' && item.url).length;
+  const mediumCount = evidence.filter((item) => item.strength === 'medium').length;
+  const externalCount = evidence.filter((item) => item.sourceType !== 'user_input' && item.url).length;
+  const weakEvidence = highCount === 0 && mediumCount <= 1;
+
+  if (mode === 'mock') {
+    return {
+      code: 'preview',
+      title: '样本模式：仅展示验证结果结构',
+      confidence: '样本',
+      confidenceLevel: 'low',
+      nextMove: '切换真实数据源或补齐真实证据后再判断',
+      mainRisk: '当前是 mock preview，不能作为真实进入判断。',
+      reason: '样本模式不包含真实市场证据，所有结论只用于查看结构。',
+      scorePreview: Math.min(response.recommendation?.matchScore || 25, 25),
+    };
+  }
+
+  if (mode === 'fallback' || missingInfo.length >= 3 || weakEvidence) {
+    return {
+      code: 'prevalidate',
+      title: '先做低成本预验证，暂不建议正式投入',
+      confidence: mode === 'fallback' || weakEvidence ? '低' : '中低',
+      confidenceLevel: 'low',
+      nextMove: '48 小时补齐用户访谈、价格和渠道证据',
+      mainRisk: missingInfo[0]?.label ? `${missingInfo[0].label}不完整` : '证据覆盖不足',
+      reason: mode === 'fallback'
+        ? '当前使用本地规则或样本信号，不能当作正式市场判断。'
+        : '现有证据较弱，不足以直接进入 MVP 开发。',
+      scorePreview: Math.min(response.recommendation?.matchScore || 45, 55),
+    };
+  }
+
+  if (highCount >= 2 && mediumCount + highCount >= 3 && externalCount >= 2) {
+    return {
+      code: 'validate',
+      title: '可以进入 7 天 MVP 验证',
+      confidence: '中高',
+      confidenceLevel: 'medium_high',
+      nextMove: '执行 24h / 7d 验证计划，并记录停止门槛',
+      mainRisk: response.riskBottlenecks?.[0]?.title || '支付、渠道或本地化风险',
+      reason: '已有多个可追溯外部信号，但仍需要用真实用户反馈完成判断。',
+      scorePreview: Math.min(response.recommendation?.matchScore || 72, 82),
+    };
+  }
+
+  return {
+    code: 'hold',
+    title: '继续观察，并先补关键证据',
+    confidence: '中',
+    confidenceLevel: 'medium',
+    nextMove: '先验证痛点、价格和渠道，再决定是否扩大投入',
+    mainRisk: response.riskBottlenecks?.[0]?.title || '关键假设未验证',
+    reason: '当前方向有参考信号，但证据强度不足以形成进入判断。',
+    scorePreview: Math.min(response.recommendation?.matchScore || 60, 68),
+  };
+}
+
+function normalizeActionStage(raw, fallback) {
+  if (raw && typeof raw === 'object') {
+    return {
+      title: raw.stage || raw.name || raw.title || fallback.title,
+      purpose: raw.goal || raw.purpose || fallback.purpose,
+      steps: Array.isArray(raw.actions) ? raw.actions.slice(0, 4) : Array.isArray(raw.steps) ? raw.steps.slice(0, 4) : fallback.steps,
+      successMetric: raw.passCondition || raw.successMetric || fallback.successMetric,
+      stopCondition: raw.stopCondition || fallback.stopCondition,
+      deliverable: raw.requiredResource || raw.deliverable || fallback.deliverable,
+    };
+  }
+  return fallback;
+}
+
+function buildJudgmentActionPlan(response) {
+  const plan = Array.isArray(response.mvpValidationPlan) ? response.mvpValidationPlan : [];
+  return {
+    twentyFourHours: normalizeActionStage(plan[0], {
+      title: '补齐证据验证',
+      purpose: '确认目标用户是否真的有该痛点。',
+      steps: ['写 1 页 landing page', '找 10 个目标用户访谈', '记录愿意留邮箱/预约的人数'],
+      successMetric: '10 人中至少 3 人表达明确需求。',
+      stopCondition: '少于 2 人愿意继续了解。',
+      deliverable: '访谈记录 + 需求强度判断',
+    }),
+    sevenDays: normalizeActionStage(plan[1], {
+      title: '价格与渠道小测试',
+      purpose: '验证愿不愿意付费，以及哪个渠道能触达。',
+      steps: ['测试 2 个价格点', '跑 1 个小预算渠道', '记录点击、留资和预约'],
+      successMetric: '至少 2 个用户接受价格或询问付款方式。',
+      stopCondition: '无人接受价格，或触达成本明显过高。',
+      deliverable: '价格反馈 + 渠道响应表',
+    }),
+    stopGate: {
+      title: '停止条件清单',
+      purpose: '防止低证据方向继续消耗开发和投放预算。',
+      steps: [
+        '10 个目标用户中少于 2 人表达明确需求',
+        '没有人愿意留下邮箱或预约',
+        '用户认为当前替代方案已经足够',
+      ],
+      successMetric: '只有出现明确继续信号才扩大投入。',
+      stopCondition: response.riskBottlenecks?.[0]?.stopOrAdjust || '没有明确需求、价格或渠道信号。',
+      deliverable: '停止/继续决策记录',
+    },
+  };
+}
+
+function attachJudgmentSchema(response, { query, profile, loadedSource, mode }) {
+  const intent = response.parsedIntent || parseQueryIntent(query, profile);
+  const assumptions = buildJudgmentAssumptions(query, profile, intent);
+  const missingInfo = buildMissingInfo(assumptions);
+  const evidence = normalizeJudgmentEvidence(response, loadedSource);
+  const verdict = buildJudgmentVerdict({ mode, response, evidence, missingInfo });
+  const actionPlan = buildJudgmentActionPlan(response);
+  const hypotheses = [
+    { id: 'demand', title: '需求假设', statement: `${assumptions.targetUser} 对该痛点有明确需求。`, status: missingInfo.some((item) => item.key === 'targetUser' || item.key === 'painPoint') ? 'needs_input' : 'ready_to_test' },
+    { id: 'payment', title: '付费假设', statement: `${assumptions.businessModel} 可以被目标用户接受。`, status: assumptions.businessModel === '未明确' ? 'needs_input' : 'ready_to_test' },
+    { id: 'channel', title: '渠道假设', statement: `${assumptions.acquisitionChannel} 能低成本触达早期样本。`, status: assumptions.acquisitionChannel === '未明确' ? 'needs_input' : 'ready_to_test' },
+  ];
+  const judgment = {
+    mode,
+    input: { rawText: query, source: loadedSource, requestedAt: response.generatedAt },
+    assumptions,
+    missingInfo,
+    verdict,
+    hypotheses,
+    evidence,
+    actionPlan,
+  };
+
+  return {
+    ...response,
+    mode,
+    input: judgment.input,
+    assumptions,
+    missingInfo,
+    verdict,
+    hypotheses,
+    evidence,
+    actionPlan,
+    judgment,
+  };
+}
+
 function coerceLlmResponseToAnalyzeResponse(llmJson, fallback, loadedSource) {
   const recommendation = llmJson.recommendation || {};
   const evidenceBoard = Array.isArray(llmJson.evidenceBoard) ? llmJson.evidenceBoard.map((item) => ({ ...item, url: item.url || undefined, sourceItemId: item.sourceItemId || undefined, note: item.sourceType === 'mock_signal' ? `${item.note || ''} 结构演示，不代表真实市场结论。`.trim() : item.note })) : fallback.evidenceBoard;
@@ -558,7 +878,7 @@ app.post('/api/analyze', async (req, res) => {
   try {
     const aiResult = await analyzeWithLLM({ query, profile, source: loaded.source, candidateSignals: loaded.items, fallback });
     if (aiResult) {
-      res.json(aiResult);
+      res.json(attachJudgmentSchema(aiResult, { query, profile, loadedSource: loaded.source, mode: 'real' }));
       return;
     }
   } catch (error) {
@@ -566,7 +886,8 @@ app.post('/api/analyze', async (req, res) => {
     fallback.analysisTrace = [...(fallback.analysisTrace || []), { step: 'AI 语义分析兜底', status: 'completed', action: '切换到本地规则引擎', finding: error instanceof Error ? error.message : 'AI 分析失败', uncertainty: '结果为规则引擎输出，建议补充真实信号后复核。' }];
   }
   if (!process.env.OPENAI_API_KEY) fallback.warnings = [...(fallback.warnings || []), 'AI 语义分析暂不可用，当前结果来自本地规则引擎。'];
-  res.json(fallback);
+  const localMode = loaded.source === 'mock' ? 'mock' : 'fallback';
+  res.json(attachJudgmentSchema(fallback, { query, profile, loadedSource: loaded.source, mode: localMode }));
 });
 
 const server = app.listen(PORT, () => {

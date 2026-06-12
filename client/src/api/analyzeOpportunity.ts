@@ -17,6 +17,18 @@ function normalizeAnalyzeResponse(raw: unknown): AnalyzeResponse {
   };
   const relevanceScoresRaw = data.relevanceScores && typeof data.relevanceScores === 'object' ? (data.relevanceScores as unknown) : null;
 
+  const passthrough = {
+    mode: data.mode,
+    input: data.input,
+    assumptions: data.assumptions,
+    missingInfo: data.missingInfo,
+    verdict: data.verdict,
+    hypotheses: data.hypotheses,
+    evidence: data.evidence,
+    actionPlan: data.actionPlan,
+    judgment: data.judgment,
+  };
+
   return {
     version: typeof data.version === 'string' ? data.version : '2.0',
     analysisId: typeof data.analysisId === 'string' ? data.analysisId : `analysis-${Date.now()}`,
@@ -44,17 +56,19 @@ function normalizeAnalyzeResponse(raw: unknown): AnalyzeResponse {
     recommendation,
     riskMatrix: asArray(data.riskMatrix),
     sevenDayPlan: asArray<string>(data.sevenDayPlan),
-  };
+    ...passthrough,
+  } as AnalyzeResponse;
 }
 
 export async function analyzeOpportunity(input: AnalyzeRequest): Promise<AnalyzeResponse> {
-  const response = await fetch('http://localhost:3001/api/analyze', {
+  const response = await fetch('/api/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
 
   if (!response.ok) {
+    console.warn('Analyze API failed', response.status);
     throw new Error(`Analyze API failed: ${response.status}`);
   }
 

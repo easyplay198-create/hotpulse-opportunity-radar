@@ -52,6 +52,58 @@ type FeedbackPanel = {
   footer: string;
 };
 
+type BackendJudgmentEvidence = {
+  title?: string;
+  source?: string;
+  sourceType?: string;
+  strength?: EvidenceStrengthValue;
+  summary?: string;
+  url?: string | null;
+};
+
+type BackendJudgmentActionStage = {
+  title?: string;
+  name?: string;
+  stage?: string;
+  purpose?: string;
+  goal?: string;
+  steps?: string[];
+  actions?: string[];
+  successMetric?: string;
+  passCondition?: string;
+  stopCondition?: string;
+  deliverable?: string;
+  requiredResource?: string;
+};
+
+type BackendJudgment = {
+  mode?: SourceMode;
+  verdict?: {
+    title?: string;
+    confidence?: string;
+    confidenceLevel?: string;
+    nextMove?: string;
+    mainRisk?: string;
+    reason?: string;
+    scorePreview?: number;
+    code?: string;
+  };
+  evidence?: BackendJudgmentEvidence[];
+  actionPlan?: {
+    twentyFourHours?: BackendJudgmentActionStage;
+    sevenDays?: BackendJudgmentActionStage;
+    stopGate?: BackendJudgmentActionStage;
+  };
+};
+
+type AnalyzeResponseWithJudgment = AnalyzeResponse & {
+  mode?: SourceMode;
+  judgment?: BackendJudgment;
+  verdict?: BackendJudgment['verdict'];
+  evidence?: BackendJudgmentEvidence[];
+  actionPlan?: BackendJudgment['actionPlan'];
+};
+
 const FALLBACK_INPUTS = ['目标市场', '目标用户', '产品类型', '使用场景 / 核心痛点', '商业模式 / 付费方式'];
 
 const MISSING_HELP: Record<string, { reason: string; example: string }> = {
@@ -81,6 +133,21 @@ function shortText(text: string, max = 64) {
   return text.length > max ? `${text.slice(0, max - 1)}...` : text;
 }
 
+function getBackendJudgment(result: AnalyzeResponse | null): BackendJudgment | null {
+  if (!result) return null;
+  const data = result as AnalyzeResponseWithJudgment;
+  if (data.judgment && typeof data.judgment === 'object') return data.judgment;
+  if (data.verdict || data.evidence || data.actionPlan || data.mode) {
+    return {
+      mode: data.mode,
+      verdict: data.verdict,
+      evidence: data.evidence,
+      actionPlan: data.actionPlan,
+    };
+  }
+  return null;
+}
+
 function missingHelp(label: string) {
   return MISSING_HELP[label] ?? {
     reason: '该条件会影响市场进入判断，需要先补齐。',
@@ -88,17 +155,18 @@ function missingHelp(label: string) {
   };
 }
 
-function sourceNotice(source: SourceMode) {
-  if (source === 'real') {
+function sourceNotice(source: SourceMode, result: AnalyzeResponse | null) {
+  const mode = getBackendJudgment(result)?.mode ?? source;
+  if (mode === 'real') {
     return {
-      title: 'Real data：真实数据源',
-      body: '当前结果可以作为进入前判断参考，但仍需结合证据覆盖和行动计划验证。',
+      title: 'Real：LLM + 真实信号判断',
+      body: '当前结果来自真实分析链路，可作为进入前判断参考，但仍需结合证据覆盖和行动计划验证。',
     };
   }
-  if (source === 'fallback') {
+  if (mode === 'fallback') {
     return {
-      title: 'Fallback：真实服务不可用，当前使用本地样本',
-      body: '此模式只能用于演示验证结构，不建议作为正式进入判断。',
+      title: 'Fallback：本地规则判断',
+      body: '当前未使用 LLM 真实判断内核，结果来自本地规则与可用信号，建议先补证据后再决策。',
     };
   }
   return {
@@ -149,6 +217,7 @@ function evidenceStatusClass(status: EvidenceDimension['currentStatus']) {
 }
 
 function textBlob(protocol: MarketMvpResearchProtocol, result: AnalyzeResponse | null) {
+  const judgment = getBackendJudgment(result);
   return [
     protocol.judgmentReason,
     protocol.pricingHypothesis.risk,
@@ -157,6 +226,9 @@ function textBlob(protocol: MarketMvpResearchProtocol, result: AnalyzeResponse |
     ...protocol.probabilityView.negativeFactors,
     ...(result?.riskMatrix ?? []).map((item) => item.label),
     ...(result?.riskBottlenecks ?? []).map((item) => `${item.title} ${item.why} ${item.impact}`),
+    judgment?.verdict?.mainRisk,
+    judgment?.verdict?.nextMove,
+    ...(judgment?.evidence ?? []).map((item) => `${item.title} ${item.sourceType} ${item.summary}`),
   ].join(' ');
 }
 
@@ -165,6 +237,23 @@ function includesAny(text: string, patterns: RegExp[]) {
 }
 
 function buildEvidenceDimensions(protocol: MarketMvpResearchProtocol, result: AnalyzeResponse | null, source: SourceMode): EvidenceDimension[] {
+  const judgmentEvidence = getBackendJudgment(result)?.evidence;
+  if (Array.isArray(judgmentEvidence) && judgmentEvidence.length > 0) {
+    return judgmentEvidence.slice(0, 8).map((item, index) => {
+      const strength = item.strength ?? 'low';
+      const currentStatus: EvidenceDimension['currentStatus'] = strength === 'high' ? '已验证' : strength === 'missing' ? '待补充' : '弱证据';
+      const sourceType = item.sourceType || item.source || 'HotPulse';
+      const noUrlNote = !item.url && strength !== 'missing' ? ' 当前未发现真实 URL，强度不标记为 high。' : '';
+      return {
+        label: item.title || `证据 ${index + 1}`,
+        currentStatus,
+        sourceType,
+        evidenceStrength: strength,
+        reason: `${item.summary || '后端判断内核返回的证据项。'}${noUrlNote}`,
+      };
+    });
+  }
+
   const externalUrl = hasRealUrl(result);
   const base = protocol.evidenceCoverage;
   const blob = textBlob(protocol, result);
@@ -254,12 +343,29 @@ function buildDecisionContract({
   missingCriticalCount: number;
   evidenceDimensions: EvidenceDimension[];
 }): DecisionContract {
+  const backendVerdict = getBackendJudgment(result)?.verdict;
   const verifiedCoverage = evidenceDimensions.filter((item) => item.currentStatus === '已验证').length;
   const mediumOrHigh = evidenceDimensions.filter((item) => item.evidenceStrength === 'medium' || item.evidenceStrength === 'high').length;
   const highCount = evidenceDimensions.filter((item) => item.evidenceStrength === 'high').length;
   const mainRisk = protocol.probabilityView.negativeFactors[0] ?? '证据不足，需要先补齐外部信号。';
   const evidenceStrength = result?.recommendation?.evidenceStrength ?? 'low';
   const baseScore = Math.max(8, Math.min(92, verifiedCoverage * 11 + mediumOrHigh * 5 + Math.max(0, 6 - missingCriticalCount) * 4));
+
+  if (backendVerdict) {
+    const confidence = backendVerdict.confidence || '低';
+    const code = backendVerdict.code || '';
+    return {
+      verdict: backendVerdict.title || '先做低成本预验证',
+      score: Math.max(0, Math.min(92, backendVerdict.scorePreview ?? baseScore)),
+      confidence,
+      evidenceCoverage: verifiedCoverage,
+      totalEvidence: evidenceDimensions.length,
+      mainRisk: backendVerdict.mainRisk || mainRisk,
+      nextMove: backendVerdict.nextMove || '补齐证据后再判断',
+      reason: backendVerdict.reason || '当前结论来自后端判断内核。',
+      tone: code === 'validate' ? 'ready' : code === 'preview' ? 'preview' : confidence === '低' || code === 'prevalidate' ? 'warning' : 'neutral',
+    };
+  }
 
   if (source === 'mock') {
     return {
@@ -332,47 +438,59 @@ function buildDecisionContract({
   };
 }
 
-function buildActionTasks(decision: DecisionContract, protocol: MarketMvpResearchProtocol): ActionTask[] {
+function actionStageToTask(phase: ActionTask['phase'], stage: BackendJudgmentActionStage | undefined, fallback: ActionTask): ActionTask {
+  if (!stage) return fallback;
+  const rawSteps = Array.isArray(stage.steps) ? stage.steps : Array.isArray(stage.actions) ? stage.actions : fallback.steps;
+  return {
+    ...fallback,
+    phase,
+    name: stage.title || stage.name || stage.stage || fallback.name,
+    purpose: stage.purpose || stage.goal || fallback.purpose,
+    steps: rawSteps.slice(0, 4),
+    successMetric: stage.successMetric || stage.passCondition || fallback.successMetric,
+    stopCondition: stage.stopCondition || fallback.stopCondition,
+    deliverable: stage.deliverable || stage.requiredResource || fallback.deliverable,
+  };
+}
+
+function buildActionTasks(decision: DecisionContract, protocol: MarketMvpResearchProtocol, result: AnalyzeResponse | null): ActionTask[] {
   const lowEvidence = decision.evidenceCoverage <= 2 || decision.confidence === '低' || decision.confidence === '中低' || decision.confidence === '样本';
   const firstStage = protocol.mvpStages[0];
   const secondStage = protocol.mvpStages[1];
+  const backendPlan = getBackendJudgment(result)?.actionPlan;
 
-  if (lowEvidence) {
-    return [
-      {
-        phase: '24h',
-        name: '补齐证据验证',
-        purpose: '确认目标用户是否真的有该痛点。',
-        steps: ['写 1 页 landing page', '找 10 个目标用户访谈', '记录愿意留邮箱/预约的人数'],
-        successMetric: '10 人中至少 3 人表达明确需求。',
-        stopCondition: '少于 2 人愿意继续了解。',
-        deliverable: '访谈记录 + 需求强度判断',
-        cta: '生成访谈清单',
-      },
-      {
-        phase: '7d',
-        name: '价格与渠道小测试',
-        purpose: '验证愿不愿意付费，以及哪个渠道能触达。',
-        steps: ['测试 2 个价格点', '跑 1 个小预算渠道', '记录点击、留资和预约'],
-        successMetric: '至少 2 个用户接受价格或询问付款方式。',
-        stopCondition: '无人接受价格，或触达成本明显过高。',
-        deliverable: '价格反馈 + 渠道响应表',
-        cta: '生成执行建议',
-      },
-      {
-        phase: 'Stop',
-        name: '停止门槛',
-        purpose: '防止低证据方向继续消耗开发和投放预算。',
-        steps: ['复盘访谈反馈', '检查替代方案是否足够好', '确认支付/本地化是否过重'],
-        successMetric: '只有出现明确继续信号才扩大投入。',
-        stopCondition: protocol.finalStopConditions[0] ?? '没有明确需求、价格或渠道信号。',
-        deliverable: '停止/继续决策记录',
-        cta: '查看停止清单',
-      },
-    ];
-  }
-
-  return [
+  const fallbackTasks: ActionTask[] = lowEvidence ? [
+    {
+      phase: '24h',
+      name: '补齐证据验证',
+      purpose: '确认目标用户是否真的有该痛点。',
+      steps: ['写 1 页 landing page', '找 10 个目标用户访谈', '记录愿意留邮箱/预约的人数'],
+      successMetric: '10 人中至少 3 人表达明确需求。',
+      stopCondition: '少于 2 人愿意继续了解。',
+      deliverable: '访谈记录 + 需求强度判断',
+      cta: '生成访谈清单',
+    },
+    {
+      phase: '7d',
+      name: '价格与渠道小测试',
+      purpose: '验证愿不愿意付费，以及哪个渠道能触达。',
+      steps: ['测试 2 个价格点', '跑 1 个小预算渠道', '记录点击、留资和预约'],
+      successMetric: '至少 2 个用户接受价格或询问付款方式。',
+      stopCondition: '无人接受价格，或触达成本明显过高。',
+      deliverable: '价格反馈 + 渠道响应表',
+      cta: '生成执行建议',
+    },
+    {
+      phase: 'Stop',
+      name: '停止门槛',
+      purpose: '防止低证据方向继续消耗开发和投放预算。',
+      steps: ['复盘访谈反馈', '检查替代方案是否足够好', '确认支付/本地化是否过重'],
+      successMetric: '只有出现明确继续信号才扩大投入。',
+      stopCondition: protocol.finalStopConditions[0] ?? '目标用户反馈已有替代工具足够好。',
+      deliverable: '停止/继续决策记录',
+      cta: '查看停止清单',
+    },
+  ] : [
     {
       phase: '24h',
       name: firstStage?.stage ?? '痛点与需求验证',
@@ -403,6 +521,14 @@ function buildActionTasks(decision: DecisionContract, protocol: MarketMvpResearc
       deliverable: '继续/暂缓/停止判断',
       cta: '查看停止清单',
     },
+  ];
+
+  if (!backendPlan) return fallbackTasks;
+
+  return [
+    actionStageToTask('24h', backendPlan.twentyFourHours, fallbackTasks[0]),
+    actionStageToTask('7d', backendPlan.sevenDays, fallbackTasks[1]),
+    actionStageToTask('Stop', backendPlan.stopGate, fallbackTasks[2]),
   ];
 }
 
@@ -676,8 +802,8 @@ export function MarketMvpResearchProtocolPanel({ protocol, source, result, missi
 
   const evidenceDimensions = buildEvidenceDimensions(protocol, result, source);
   const decision = buildDecisionContract({ protocol, result, source, missingCriticalCount, evidenceDimensions });
-  const notice = sourceNotice(source);
-  const actionTasks = buildActionTasks(decision, protocol);
+  const notice = sourceNotice(source, result);
+  const actionTasks = buildActionTasks(decision, protocol, result);
   const advisorItems = buildAdvisorItems(protocol, result);
   const activeAdvisorItem = advisorItems.find((item) => `${item.key}:${item.cta}` === activeAdvisorPanel);
 
@@ -696,9 +822,9 @@ export function MarketMvpResearchProtocolPanel({ protocol, source, result, missi
         </div>
         <div className={styles.decisionContractGrid}>
           <article>
-            <span>Score</span>
+            <span>Preview Score</span>
             <strong>{decision.score}</strong>
-            <small>前端派生分</small>
+            <small>仅作参考</small>
           </article>
           <article>
             <span>Confidence</span>
@@ -794,6 +920,27 @@ export function MarketMvpResearchProtocolPanel({ protocol, source, result, missi
             </article>
           ))}
         </div>
+        <section className={styles.validationResultCapture} aria-label="验证结果回填">
+          <div className={styles.validationCaptureHeader}>
+            <div>
+              <span className={styles.panelEyebrow}>Result Feedback</span>
+              <h4>验证结果回填</h4>
+            </div>
+            <p>记录验证结果后，可用于下一轮刷新判断。</p>
+          </div>
+          <div className={styles.validationCaptureGrid}>
+            {['访问量', '留资数', '访谈数', '付费意愿人数'].map((label) => (
+              <label key={label} className={styles.validationCaptureField}>
+                <span>{label}</span>
+                <input type="text" placeholder="待记录" disabled />
+              </label>
+            ))}
+            <label className={styles.validationCaptureFieldWide}>
+              <span>主要反馈</span>
+              <textarea placeholder="待记录" disabled />
+            </label>
+          </div>
+        </section>
       </section>
 
       <section className={styles.advisoryNext}>

@@ -32,6 +32,17 @@ type AssumptionItem = {
   status: AssumptionStatus;
 };
 
+type BackendJudgment = {
+  assumptions?: Record<string, unknown>;
+  missingInfo?: Array<string | { key?: string; label?: string }>;
+};
+
+type AnalyzeResponseWithJudgment = AnalyzeResponse & {
+  judgment?: BackendJudgment;
+  assumptions?: Record<string, unknown>;
+  missingInfo?: Array<string | { key?: string; label?: string }>;
+};
+
 const PENDING_VALUE = '待补充';
 const CRITICAL_ASSUMPTION_KEYS = ['targetMarket', 'targetUser', 'painPoint', 'businessModel', 'acquisitionChannel', 'platformForm'];
 
@@ -204,6 +215,48 @@ function extractAssumptions(query: string, profile: AnalyzeProfile): AssumptionI
   ];
 }
 
+function getBackendJudgment(result: AnalyzeResponse | null): BackendJudgment | null {
+  if (!result) return null;
+  const data = result as AnalyzeResponseWithJudgment;
+  if (data.judgment && typeof data.judgment === 'object') return data.judgment;
+  if (data.assumptions || data.missingInfo) {
+    return {
+      assumptions: data.assumptions,
+      missingInfo: data.missingInfo,
+    };
+  }
+  return null;
+}
+
+function assumptionValueFromBackend(value: unknown) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed && trimmed !== '未明确' ? trimmed : PENDING_VALUE;
+}
+
+function missingKeysFromBackend(judgment: BackendJudgment | null) {
+  const keys = new Set<string>();
+  for (const item of judgment?.missingInfo ?? []) {
+    if (typeof item === 'string') keys.add(item);
+    else if (item.key) keys.add(item.key);
+  }
+  return keys;
+}
+
+function mergeBackendAssumptions(base: AssumptionItem[], judgment: BackendJudgment | null): AssumptionItem[] {
+  if (!judgment?.assumptions) return base;
+  const missingKeys = missingKeysFromBackend(judgment);
+  return base.map((item) => {
+    const backendValue = assumptionValueFromBackend(judgment.assumptions?.[item.key]);
+    if (!backendValue) return item;
+    return {
+      ...item,
+      value: backendValue,
+      status: missingKeys.has(item.key) || backendValue === PENDING_VALUE ? 'missing' : 'identified',
+    };
+  });
+}
+
 function sourceModeCopy(source: 'real' | 'mock' | 'fallback', hasError: boolean) {
   if (hasError) {
     return {
@@ -222,8 +275,8 @@ function sourceModeCopy(source: 'real' | 'mock' | 'fallback', hasError: boolean)
   if (source === 'fallback') {
     return {
       label: 'Fallback',
-      title: '本地样本',
-      hint: '真实服务不可用，当前使用本地样本。',
+      title: '本地规则判断',
+      hint: '当前未使用 LLM 判断内核，结果需先补证据后再决策。',
     };
   }
   return {
@@ -505,9 +558,10 @@ export function AnalyzePage() {
       setSource(response.source);
       setResult(normalizeViewResult(response));
       setActiveStep(5);
-    } catch {
+    } catch (requestError) {
+      console.warn('Analyze request failed', requestError);
       setProtocol(null);
-      setError('分析服务未连接，请先启动本地 API 服务，或查看 Mock preview。');
+      setError('分析服务未连接。请稍后重试，或切换样本模式查看验证结构。');
     } finally {
       setAnalyzing(false);
     }
@@ -524,8 +578,15 @@ export function AnalyzePage() {
   };
 
   const viewResult = useMemo(() => normalizeViewResult(result), [result]);
+  const backendJudgment = useMemo(() => getBackendJudgment(viewResult), [viewResult]);
+  const displaySource = backendJudgment && (backendJudgment as { mode?: 'real' | 'mock' | 'fallback' }).mode
+    ? (backendJudgment as { mode: 'real' | 'mock' | 'fallback' }).mode
+    : source;
   const currentQuality = useMemo(() => (query.trim() ? inspectInputQuality(query) : { score: 0, isEnough: false, missing: [] }), [query]);
-  const assumptions = useMemo(() => extractAssumptions(query, profile), [profile, query]);
+  const assumptions = useMemo(
+    () => mergeBackendAssumptions(extractAssumptions(query, profile), backendJudgment),
+    [backendJudgment, profile, query],
+  );
   const missingCritical = useMemo(
     () => assumptions.filter((item) => CRITICAL_ASSUMPTION_KEYS.includes(item.key) && item.status === 'missing'),
     [assumptions],
@@ -544,7 +605,7 @@ export function AnalyzePage() {
       <div className={styles.page}>
         <TopNav />
         <AnalyzeHero
-          source={source}
+          source={displaySource}
           qualityScore={currentQuality.score}
           analyzing={analyzing}
           hasResult={Boolean(viewResult && protocol?.canJudge)}
@@ -587,7 +648,7 @@ export function AnalyzePage() {
         {error && !viewResult ? (
           <section className={styles.errorCard}>
             <h2>分析服务未连接</h2>
-            <p>请先启动本地 API 服务 http://localhost:3001，或切换 Mock preview 查看验证结构。</p>
+            <p>分析服务未连接。请稍后重试，或切换样本模式查看验证结构。</p>
             <div className={styles.actionsRow}>
               <button type="button" className={styles.primaryButton} onClick={runAnalyze}>重新分析</button>
               <a className={styles.ghostButton} href={`/signals?source=${source}`}>查看市场信号</a>

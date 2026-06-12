@@ -1518,6 +1518,84 @@
   font-weight: 800;
 }
 
+.validationResultCapture {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #dbe7f4;
+  border-radius: 18px;
+  background: #fbfdff;
+}
+
+.validationCaptureHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+}
+
+.validationCaptureHeader h4 {
+  margin: 4px 0 0;
+  color: #10203d;
+  font-size: 17px;
+}
+
+.validationCaptureHeader p {
+  max-width: 360px;
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.validationCaptureGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.validationCaptureField,
+.validationCaptureFieldWide {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.validationCaptureField span,
+.validationCaptureFieldWide span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.validationCaptureField input,
+.validationCaptureFieldWide textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #dbe7f4;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #64748b;
+  font: inherit;
+  font-size: 13px;
+}
+
+.validationCaptureField input {
+  height: 38px;
+  padding: 0 11px;
+}
+
+.validationCaptureFieldWide {
+  grid-column: 1 / -1;
+}
+
+.validationCaptureFieldWide textarea {
+  min-height: 74px;
+  padding: 10px 11px;
+  resize: none;
+}
+
 .advisoryNext {
   display: grid;
   grid-template-columns: minmax(260px, .78fr) minmax(360px, 1.22fr);
@@ -1970,6 +2048,7 @@
   .advancedGrid,
   .evidenceCoverageGrid,
   .actionPlanGrid,
+  .validationCaptureGrid,
   .riskFocusGrid,
   .qualityExampleGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1997,6 +2076,7 @@
   .decisionContractGrid,
   .evidenceCoverageGrid,
   .actionPlanGrid,
+  .validationCaptureGrid,
   .riskFocusGrid,
   .qualityExampleGrid,
   .missingGrid,
@@ -2016,6 +2096,7 @@
   .progressHeader,
   .protocolHeader,
   .protocolBlockHeader,
+  .validationCaptureHeader,
   .missingWorkspaceHeader,
   .advisoryNext,
   .canvasHeader,
