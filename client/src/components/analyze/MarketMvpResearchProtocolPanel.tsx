@@ -94,6 +94,7 @@ type BackendJudgment = {
     sevenDays?: BackendJudgmentActionStage;
     stopGate?: BackendJudgmentActionStage;
   };
+  firstPartyKnowledge?: FirstPartyKnowledgeMap;
 };
 
 type AnalyzeResponseWithJudgment = AnalyzeResponse & {
@@ -102,7 +103,15 @@ type AnalyzeResponseWithJudgment = AnalyzeResponse & {
   verdict?: BackendJudgment['verdict'];
   evidence?: BackendJudgmentEvidence[];
   actionPlan?: BackendJudgment['actionPlan'];
+  firstPartyKnowledge?: FirstPartyKnowledgeMap;
 };
+
+type FirstPartyKnowledgeBlock = {
+  level?: 'good' | 'limited' | 'blocked' | 'unknown';
+  summary?: string;
+};
+
+type FirstPartyKnowledgeMap = Record<string, FirstPartyKnowledgeBlock | undefined>;
 
 const FALLBACK_INPUTS = ['目标市场', '目标用户', '产品类型', '使用场景 / 核心痛点', '商业模式 / 付费方式'];
 
@@ -137,12 +146,13 @@ function getBackendJudgment(result: AnalyzeResponse | null): BackendJudgment | n
   if (!result) return null;
   const data = result as AnalyzeResponseWithJudgment;
   if (data.judgment && typeof data.judgment === 'object') return data.judgment;
-  if (data.verdict || data.evidence || data.actionPlan || data.mode) {
+  if (data.verdict || data.evidence || data.actionPlan || data.mode || data.firstPartyKnowledge) {
     return {
       mode: data.mode,
       verdict: data.verdict,
       evidence: data.evidence,
       actionPlan: data.actionPlan,
+      firstPartyKnowledge: data.firstPartyKnowledge,
     };
   }
   return null;
@@ -207,6 +217,42 @@ function decisionToneClass(tone: DecisionContract['tone']) {
   if (tone === 'warning') return styles.decisionToneWarning;
   if (tone === 'preview') return styles.decisionTonePreview;
   return styles.decisionToneNeutral;
+}
+
+const FIRST_PARTY_CORE_DIMENSIONS = [
+  ['paymentFit', '支付适配'],
+  ['localizationCost', '本地化成本'],
+  ['complianceRisk', '合规风险'],
+  ['aiCostRisk', 'AI 成本'],
+  ['acquisitionRisk', '获客风险'],
+] as const;
+
+function firstPartyKnowledgeCards(result: AnalyzeResponse | null) {
+  const knowledge = getBackendJudgment(result)?.firstPartyKnowledge;
+  if (!knowledge) return [];
+  return FIRST_PARTY_CORE_DIMENSIONS.map(([key, label]) => {
+    const block = knowledge[key];
+    return {
+      key,
+      label,
+      level: block?.level ?? 'unknown',
+      summary: block?.summary ?? '暂无该维度的约束判断。',
+    };
+  });
+}
+
+function firstPartyLevelClass(level: FirstPartyKnowledgeBlock['level']) {
+  if (level === 'good') return styles.firstPartyLevelGood;
+  if (level === 'limited') return styles.firstPartyLevelLimited;
+  if (level === 'blocked') return styles.firstPartyLevelBlocked;
+  return styles.firstPartyLevelUnknown;
+}
+
+function firstPartyLevelLabel(level: FirstPartyKnowledgeBlock['level']) {
+  if (level === 'good') return 'Good';
+  if (level === 'limited') return 'Limited';
+  if (level === 'blocked') return 'Blocked';
+  return 'Unknown';
 }
 
 function evidenceStatusClass(status: EvidenceDimension['currentStatus']) {
@@ -806,6 +852,7 @@ export function MarketMvpResearchProtocolPanel({ protocol, source, result, missi
   const actionTasks = buildActionTasks(decision, protocol, result);
   const advisorItems = buildAdvisorItems(protocol, result);
   const activeAdvisorItem = advisorItems.find((item) => `${item.key}:${item.cta}` === activeAdvisorPanel);
+  const knowledgeCards = firstPartyKnowledgeCards(result);
 
   return (
     <section className={styles.consoleShell} aria-label="Market MVP 验证结果">
@@ -848,6 +895,29 @@ export function MarketMvpResearchProtocolPanel({ protocol, source, result, missi
           </article>
         </div>
       </section>
+
+      {knowledgeCards.length > 0 ? (
+        <section className={styles.protocolBlock}>
+          <div className={styles.protocolBlockHeader}>
+            <div>
+              <span className={styles.panelEyebrow}>First-Party Knowledge</span>
+              <h3>出海关键约束</h3>
+            </div>
+            <small>这里只展示免费页预览；完整拆解适合放入 Report 页。</small>
+          </div>
+          <div className={styles.firstPartyConstraintGrid}>
+            {knowledgeCards.map((item) => (
+              <article key={item.key} className={styles.firstPartyConstraintCard}>
+                <div className={styles.firstPartyConstraintTop}>
+                  <strong>{item.label}</strong>
+                  <span className={firstPartyLevelClass(item.level)}>{firstPartyLevelLabel(item.level)}</span>
+                </div>
+                <p>{shortText(item.summary, 72)}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className={styles.protocolBlock}>
         <div className={styles.protocolBlockHeader}>

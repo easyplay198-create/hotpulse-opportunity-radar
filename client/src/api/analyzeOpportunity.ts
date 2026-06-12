@@ -26,6 +26,7 @@ function normalizeAnalyzeResponse(raw: unknown): AnalyzeResponse {
     hypotheses: data.hypotheses,
     evidence: data.evidence,
     actionPlan: data.actionPlan,
+    firstPartyKnowledge: data.firstPartyKnowledge,
     judgment: data.judgment,
   };
 

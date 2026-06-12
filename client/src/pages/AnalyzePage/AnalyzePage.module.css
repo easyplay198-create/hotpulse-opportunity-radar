@@ -1342,6 +1342,72 @@
   color: #64748b;
 }
 
+.firstPartyConstraintGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.firstPartyConstraintCard {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #dbe7f4;
+  border-radius: 16px;
+  background: #fbfdff;
+}
+
+.firstPartyConstraintTop {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.firstPartyConstraintTop strong {
+  color: #10203d;
+  font-size: 14px;
+}
+
+.firstPartyConstraintTop span {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.firstPartyConstraintCard p {
+  margin: 0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.firstPartyLevelGood {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.firstPartyLevelLimited {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.firstPartyLevelBlocked {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.firstPartyLevelUnknown {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
 .evidenceMeter {
   display: grid;
 }
@@ -2046,6 +2112,7 @@
   }
 
   .advancedGrid,
+  .firstPartyConstraintGrid,
   .evidenceCoverageGrid,
   .actionPlanGrid,
   .validationCaptureGrid,
@@ -2074,6 +2141,7 @@
   .advancedGrid,
   .decisionMetaGrid,
   .decisionContractGrid,
+  .firstPartyConstraintGrid,
   .evidenceCoverageGrid,
   .actionPlanGrid,
   .validationCaptureGrid,
