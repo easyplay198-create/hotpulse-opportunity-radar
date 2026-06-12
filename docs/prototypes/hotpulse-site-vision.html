@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HotPulse Homepage Prototype v6.5</title>
+  <style>
+    :root {
+      --bg: #f5f8fc;
+      --card: #ffffff;
+      --line: #dbe5f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #244b86;
+      --blue-soft: #eef4fb;
+      --blue-line: #d9e5f5;
+      --green-soft: #f0fdf4;
+      --green-line: #bbf7d0;
+      --orange-soft: #fff7ed;
+      --orange-line: #fed7aa;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+    h1,h2,h3,p { margin: 0; }
+    a { color: inherit; text-decoration: none; }
+    .shell { max-width: 1180px; margin: 0 auto; padding: 28px 20px 72px; }
+    .nav,.hero,.section,.footer { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+
+    .nav { position: sticky; top: 12px; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; backdrop-filter: blur(10px); background: rgba(255,255,255,.9); }
+    .brand { display: grid; gap: 2px; min-width: 180px; }
+    .brand strong { font-size: 18px; letter-spacing: -.02em; }
+    .brand span { font-size: 12px; color: var(--muted); }
+    .navLinks { display: flex; flex-wrap: wrap; gap: 10px 14px; justify-content: center; flex: 1; font-size: 13px; color: #334155; }
+    .navLinks a { padding: 6px 0; }
+    .navActions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--blue); font-weight: 700; white-space: nowrap; transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease; }
+    .btn:hover { transform: translateY(-1px); border-color: #c8d7ea; box-shadow: 0 8px 18px rgba(15,23,42,.06); }
+    .btnPrimary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .btnPrimary:hover { background: #2e5a9d; }
+
+    .hero { margin-top: 24px; padding: 34px; display: grid; grid-template-columns: minmax(0,1.15fr) minmax(340px,.85fr); gap: 28px; align-items: stretch; animation: fadeRise 500ms ease both; }
+    .heroLeft { display: grid; gap: 20px; align-content: start; }
+    .eyebrow { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+    .hero h1 { font-size: 32px; line-height: 1.08; letter-spacing: -.035em; max-width: 18ch; text-wrap: balance; }
+    .heroSub { color: #475569; font-size: 15px; max-width: 64ch; line-height: 1.7; }
+    .heroActions { display: flex; gap: 12px; flex-wrap: wrap; }
+    .trust { color: #475569; font-size: 13px; line-height: 1.65; }
+    .trust strong { color: var(--text); }
+    .kpiRow { display: flex; gap: 8px; flex-wrap: wrap; }
+    .miniState { display: inline-flex; align-items: center; width: fit-content; padding: 6px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid var(--line); background: #f8fafc; color: #334155; }
+    .miniState.blue { background: var(--blue-soft); border-color: var(--blue-line); color: var(--blue); }
+    .miniState.green { background: var(--green-soft); border-color: var(--green-line); color: #166534; }
+    .miniState.orange { background: var(--orange-soft); border-color: var(--orange-line); color: #9a3412; }
+
+    .hp7-decision-gate { margin-top: 22px; max-width: 560px; min-height: 176px; padding: 22px; border: 1px solid #cfe0f2; border-radius: 18px; background: linear-gradient(180deg, #f8fcff 0%, #eef6ff 100%); box-shadow: 0 10px 24px rgba(15,23,42,.05); display: grid; gap: 16px; }
+    .hp7-gate-top { display: grid; gap: 6px; }
+    .hp7-gate-title { color: #14345f; font-size: 14px; font-weight: 800; letter-spacing: -.01em; }
+    .hp7-gate-sub { color: #516176; font-size: 13px; line-height: 1.65; }
+    .hp7-gate-verdicts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .hp7-verdict { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 10px; border-radius: 14px; border: 1px solid #d8e6f5; background: rgba(255,255,255,.88); color: #334155; font-size: 13px; font-weight: 800; box-shadow: inset 0 1px 0 rgba(255,255,255,.8); }
+    .hp7-verdict.is-continue { background: #ecf5ff; border-color: #cfe0f2; color: #24518b; }
+    .hp7-verdict.is-pause { background: #f6f9fc; border-color: #dde7f2; color: #475569; }
+    .hp7-verdict.is-stop { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+    .hp7-gate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .hp7-gate-item { display: grid; gap: 4px; padding: 12px 14px; border-radius: 14px; background: rgba(255,255,255,.8); border: 1px solid rgba(218,228,239,.92); }
+    .hp7-gate-item span { color: #64748b; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+    .hp7-gate-item strong { color: #24364f; font-size: 13px; font-weight: 700; }
+
+    .hp7-signal-card { padding: 18px; border: 1px solid var(--line); border-radius: 18px; background: #fff; display: grid; gap: 12px; align-content: start; overflow: hidden; }
+    .hp7-signal-badge { display: inline-flex; width: fit-content; padding: 7px 10px; border-radius: 999px; background: var(--blue-soft); border: 1px solid var(--blue-line); color: var(--blue); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    .hp7-signal-inner { display: grid; gap: 12px; }
+    .hp7-signal-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; font-weight: 700; color: #334155; }
+    .hp7-signal-header > span:first-child { letter-spacing: -.01em; }
+    .hp7-signal-status { display: inline-flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 999px; background: #eef6ff; border: 1px solid #d9e5f5; color: var(--blue); font-size: 12px; font-weight: 700; box-shadow: 0 0 0 0 rgba(96,165,250,.18); animation: hp7StatusBreath 3.4s ease-in-out infinite; }
+    .hp7-scan-stage { height: 250px; display: grid; place-items: center; overflow: hidden; position: relative; border-radius: 18px; border: 1px solid #e6edf6; background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%); }
+    .hp7-scan-stage::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(36,75,134,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(36,75,134,.04) 1px, transparent 1px); background-size: 28px 28px; opacity: .28; pointer-events: none; mask-image: radial-gradient(circle at center, black 0 66%, transparent 100%); }
+    .hp7-scan-stage::after { content: ""; position: absolute; inset: 20px; border-radius: 24px; border: 1px solid rgba(219,229,240,.7); pointer-events: none; }
+    .hp7-scan-orb { position: relative; width: 220px; height: 220px; border-radius: 999px; overflow: hidden; isolation: isolate; margin: 0 auto; background: radial-gradient(circle at 50% 50%, #ffffff 0 18%, #f4f8ff 45%, #edf5ff 78%, #e6f0fb 100%); border: 1px solid rgba(36,75,134,.16); box-shadow: inset 0 0 0 1px rgba(255,255,255,.82), inset 0 0 24px rgba(37,99,235,.08), 0 10px 24px rgba(37,99,235,.06); }
+    .hp7-scan-orb::after { content: ""; position: absolute; inset: 1px; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(37,99,235,.12), inset 0 0 18px rgba(14,165,233,.08); pointer-events: none; z-index: 4; }
+    .hp7-scan-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 1; }
+    .hp7-scan-disc { fill: url(#hp7DiscGlow); }
+    .hp7-ring { fill: none; stroke: rgba(36,75,134,0.17); stroke-width: 1; }
+    .hp7-ring-mid { stroke: rgba(36,75,134,0.13); }
+    .hp7-ring-inner { stroke: rgba(36,75,134,0.11); }
+    .hp7-rim-light { fill: none; stroke: rgba(37,99,235,.18); stroke-width: 1.4; }
+    .hp7-sweep-layer { transform-origin: 120px 120px; animation: hp7SweepRotate 5.1s linear infinite; }
+    .hp7-sweep-tail,
+    .hp7-scan-tail { fill: url(#hp7TailGradient); opacity: .42; filter: url(#hp7BeamGlow); }
+    .hp7-scan-beam { fill: url(#hp7BeamGradient); filter: url(#hp7BeamGlow); opacity: .86; }
+    .hp7-sweep-fill { fill: url(#hp7BeamGradient); filter: url(#hp7BeamGlow); opacity: .86; }
+    .hp7-sweep-edge { stroke: rgba(37,99,235,0.66); stroke-width: 1.6; stroke-linecap: round; opacity: .64; filter: url(#hp7EdgeGlow); }
+    .hp7-scan-head { fill: rgba(219,234,254,.82); stroke: rgba(37,99,235,.5); stroke-width: .8; opacity: .82; filter: url(#hp7HeadGlow); }
+    .hp7-scan-core { fill: url(#hp7CoreGlow); filter: url(#hp7CoreFilter); transform-origin: 120px 120px; animation: hp7CorePulse 2.8s ease-in-out infinite; }
+    .hp7-core-pulse { fill: url(#hp7CoreGlow); filter: url(#hp7CoreFilter); transform-origin: 120px 120px; animation: hp7CorePulse 2.8s ease-in-out infinite; }
+    .hp7-core-dot { fill: #2563eb; filter: drop-shadow(0 0 4px rgba(37,99,235,.45)); }
+    .hp7-scan-node { position: absolute; display: grid; gap: 4px; justify-items: center; z-index: 3; transform: translate(-50%, -50%); --pulse-delay: 0s; }
+    .hp7-scan-dot { position: relative; width: 11px; height: 11px; border-radius: 999px; background: var(--node, #7fb0e6); border: 2px solid color-mix(in srgb, var(--node, #7fb0e6) 70%, white); box-shadow: 0 0 0 4px color-mix(in srgb, var(--node, #7fb0e6) 18%, transparent); animation: hp7ScanDotPulse 2.8s ease-in-out infinite, hp7NodeSweepGlow 5.1s linear infinite; animation-delay: 0s, var(--pulse-delay); }
+    .hp7-scan-dot::after { content: ""; position: absolute; inset: -10px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--node, #3b82f6) 52%, transparent); opacity: 0; animation: hp7NodeEcho 5.1s linear infinite; animation-delay: var(--pulse-delay); }
+    .hp7-scan-node span:last-child { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,.98); border: 1px solid color-mix(in srgb, var(--node, #dbe5f0) 38%, #dbe5f0); color: #334155; font-size: 11px; font-weight: 700; white-space: nowrap; box-shadow: 0 4px 10px rgba(15,23,42,.03); animation: hp7LabelPulse 5.1s linear infinite; animation-delay: var(--pulse-delay); }
+    .hp7-signal-metrics { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+    .hp7-signal-metric { padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); background: #fff; display: grid; gap: 2px; box-shadow: 0 4px 12px rgba(15,23,42,.03); }
+    .hp7-signal-metric span { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .hp7-signal-metric strong { font-size: 14px; color: var(--text); }
+    .hp7-scan-caption { padding-top: 2px; color: #334155; font-size: 13px; line-height: 1.5; }
+    .hp7-scan-node.is-hn { left: 50%; top: 21%; --node: #3b82f6; --pulse-delay: .1s; }
+    .hp7-scan-node.is-store { left: 78%; top: 48%; --node: #6366f1; --pulse-delay: 1s; }
+    .hp7-scan-node.is-ph { left: 67%; top: 76%; --node: #f59e0b; --pulse-delay: 1.9s; }
+    .hp7-scan-node.is-seed { left: 25%; top: 73%; --node: #22c55e; --pulse-delay: 2.8s; }
+    .hp7-scan-node.is-signals { left: 24%; top: 34%; --node: #06b6d4; --pulse-delay: 3.7s; }
+    .previewMeta { color: var(--muted); font-size: 12px; }
+
+    .section { margin-top: 28px; padding: 34px; opacity: 0; animation: fadeRise 500ms ease forwards; }
+    .section:nth-of-type(2) { animation-delay: 60ms; }
+    .section:nth-of-type(3) { animation-delay: 110ms; }
+    .section:nth-of-type(4) { animation-delay: 160ms; }
+    .section:nth-of-type(5) { animation-delay: 210ms; }
+    .section:nth-of-type(6) { animation-delay: 260ms; }
+    .section:nth-of-type(7) { animation-delay: 310ms; }
+    .sectionHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 26px; }
+    .sectionLabel { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+    .sectionTitle { font-size: 24px; letter-spacing: -.03em; line-height: 1.18; }
+    .sectionDesc { max-width: 66ch; color: #475569; font-size: 14px; line-height: 1.7; }
+
+    .narrativeGrid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px; }
+    .storyCard { padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: #fff; box-shadow: var(--shadow); display: grid; gap: 14px; transition: transform 180ms ease, box-shadow 180ms ease; }
+    .storyCard:hover { transform: translateY(-2px); box-shadow: 0 14px 26px rgba(15,23,42,.07); }
+    .storyCard h3 { font-size: 18px; line-height: 1.25; }
+    .storyCard p { color: #475569; font-size: 14px; line-height: 1.7; max-width: 38ch; }
+
+    .howGrid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px; }
+    .step { padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: #fff; box-shadow: var(--shadow); display: grid; gap: 18px; transition: transform 180ms ease, box-shadow 180ms ease; min-height: 368px; align-content: start; }
+    .step:hover { transform: translateY(-2px); box-shadow: 0 14px 26px rgba(15,23,42,.07); }
+    .stepVisual { min-height: 150px; border-radius: 16px; border: 1px solid #e6edf6; background: linear-gradient(180deg, #fbfdff 0%, #f3f8ff 100%); padding: 18px; position: relative; overflow: hidden; }
+    .stepCopy { display: grid; gap: 10px; }
+    .stepNo { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 999px; background: var(--blue-soft); color: var(--blue); font-weight: 800; font-size: 13px; }
+    .stepTag { display: inline-flex; align-items: center; justify-content: center; height: 23px; padding: 0 9px; border-radius: 999px; font-size: 10.5px; font-weight: 800; letter-spacing: .05em; color: #244b86; background: #eef6ff; border: 1px solid #d8e8fb; width: fit-content; }
+    .step h3 { font-size: 20px; letter-spacing: -.02em; line-height: 1.2; }
+    .step p { color: #475569; font-size: 14px; line-height: 1.7; max-width: 42ch; }
+    .stepMeta { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    .hp7-signal-net { height: 132px; }
+    .hp7-net-node { position: absolute; display: inline-flex; align-items: center; justify-content: center; min-width: 46px; height: 28px; padding: 0 9px; border-radius: 999px; border: 1px solid #d9e5f5; background: rgba(255,255,255,.92); color: #244b86; font-size: 11px; font-weight: 800; box-shadow: 0 8px 18px rgba(15,23,42,.04); }
+    .hp7-net-node::before { content: ""; width: 7px; height: 7px; border-radius: 999px; margin-right: 6px; background: var(--node, #3b82f6); box-shadow: 0 0 0 4px color-mix(in srgb, var(--node, #3b82f6) 14%, transparent); }
+    .hp7-net-node.is-hn { left: 14%; top: 18%; --node: #3b82f6; }
+    .hp7-net-node.is-store { right: 12%; top: 22%; --node: #6366f1; }
+    .hp7-net-node.is-ph { left: 34%; top: 48%; --node: #f59e0b; }
+    .hp7-net-node.is-seed { left: 10%; bottom: 12%; --node: #22c55e; }
+    .hp7-net-node.is-signals { right: 10%; bottom: 14%; --node: #06b6d4; }
+    .hp7-net-line { position: absolute; height: 1px; border-radius: 999px; background: linear-gradient(90deg, rgba(36,75,134,.04), rgba(36,75,134,.18), rgba(36,75,134,.04)); transform-origin: left center; }
+    .hp7-net-line.a { width: 52%; left: 22%; top: 42%; transform: rotate(13deg); }
+    .hp7-net-line.b { width: 48%; left: 21%; top: 62%; transform: rotate(-20deg); }
+    .hp7-net-line.c { width: 42%; left: 38%; top: 55%; transform: rotate(28deg); }
+    .hp7-eval-board { display: grid; gap: 12px; align-content: center; height: 100%; }
+    .hp7-trend-card { padding: 12px; border-radius: 14px; background: rgba(255,255,255,.86); border: 1px solid #e2ebf6; display: grid; gap: 10px; }
+    .hp7-trend-line { height: 40px; border-radius: 12px; background: linear-gradient(135deg, transparent 0 42%, rgba(96,165,250,.18) 43% 55%, transparent 56% 100%); border: 1px solid #edf2f7; position: relative; overflow: hidden; }
+    .hp7-trend-line::after { content: ""; position: absolute; left: 14%; bottom: 10px; width: 72%; height: 18px; border-bottom: 2px solid #60a5fa; border-right: 2px solid #60a5fa; transform: skewX(-24deg); opacity: .7; }
+    .hp7-eval-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .hp7-eval-chip { display: inline-flex; align-items: center; padding: 6px 9px; border-radius: 999px; background: #f8fafc; border: 1px solid var(--line); color: #334155; font-size: 11px; font-weight: 800; }
+    .hp7-eval-chip.valid { background: #eef6ff; border-color: #d9e5f5; color: var(--blue); }
+    .hp7-eval-chip.risk { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+    .hp7-check-strip { display: grid; gap: 7px; }
+    .hp7-check-strip span { height: 8px; border-radius: 999px; background: #edf2f7; overflow: hidden; }
+    .hp7-check-strip span::before { content: ""; display: block; height: 100%; width: var(--w, 60%); border-radius: inherit; background: linear-gradient(90deg, #bfdbfe, #60a5fa); }
+    .hp7-decision-board { display: grid; gap: 12px; align-content: center; height: 100%; }
+    .hp7-decision-states { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+    .hp7-state-pill { display: inline-flex; justify-content: center; align-items: center; min-height: 34px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: #64748b; font-size: 12px; font-weight: 800; }
+    .hp7-state-pill.active { background: #eaf2ff; color: var(--blue); border-color: #d9e5f5; }
+    .hp7-decision-note { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+    .hp7-decision-note span { display: grid; gap: 3px; padding: 12px; border-radius: 14px; background: rgba(255,255,255,.88); border: 1px solid #e6edf6; color: #334155; font-size: 12px; font-weight: 800; }
+    .hp7-decision-note small { color: var(--muted); font-size: 11px; font-weight: 700; }
+
+    .hp7-product-path { display: grid; gap: 24px; }
+    .hp7-path-intro { color: #475569; font-size: 14px; line-height: 1.7; max-width: 68ch; }
+    .hp7-path-stack { display: grid; gap: 18px; }
+    .hp7-path-row { display: grid; grid-template-columns: minmax(280px, 0.42fr) minmax(360px, 0.58fr); gap: 34px; align-items: center; padding: 30px; min-height: 206px; border: 1px solid var(--line); border-radius: 20px; background: #fff; box-shadow: var(--shadow); }
+    .hp7-path-main { display: grid; gap: 12px; align-content: center; }
+    .hp7-path-step { display: inline-flex; width: fit-content; padding: 6px 10px; border-radius: 999px; background: var(--blue-soft); border: 1px solid var(--blue-line); color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .hp7-path-title { font-size: 18px; letter-spacing: -.02em; color: #10233f; }
+    .hp7-path-desc { color: #475569; font-size: 14px; line-height: 1.7; max-width: 48ch; }
+    .hp7-path-action { display: inline-flex; align-items: center; width: fit-content; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: #f8fafc; color: #334155; font-size: 12px; font-weight: 700; }
+    .hp7-path-visual { min-height: 150px; border-radius: 16px; background: #fbfdff; border: 1px solid #e6edf6; padding: 20px; display: grid; align-content: center; gap: 12px; }
+    .hp7-mini-signal,.hp7-mini-validation,.hp7-mini-report { display: grid; gap: 12px; }
+    .hp7-mini-signal-row { display: grid; grid-template-columns: 76px minmax(0,1fr) minmax(150px,1fr); gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid #eef2f7; }
+    .hp7-mini-signal-row:last-child { border-bottom: none; }
+    .hp7-mini-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; padding: 5px 8px; border-radius: 999px; background: #eef6ff; border: 1px solid #d9e5f5; color: var(--blue); font-size: 11px; font-weight: 700; }
+    .hp7-mini-bar { height: 6px; border-radius: 999px; background: #edf2f7; overflow: hidden; position: relative; }
+    .hp7-mini-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #bfdbfe 0%, #60a5fa 100%); }
+    .hp7-mini-bar.a i { width: 74%; } .hp7-mini-bar.b i { width: 56%; } .hp7-mini-bar.c i { width: 40%; }
+    .hp7-mini-label { color: #334155; font-size: 13px; }
+    .hp7-mini-badge { display: inline-flex; align-items: center; width: fit-content; padding: 7px 10px; border-radius: 999px; background: #eef6ff; border: 1px solid #d9e5f5; color: var(--blue); font-size: 12px; font-weight: 700; }
+    .hp7-mini-flow { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; align-items: stretch; }
+    .hp7-mini-step { border: 1px solid var(--line); border-radius: 14px; padding: 12px 10px; background: #fbfdff; display: grid; place-items: center; gap: 5px; min-height: 72px; }
+    .hp7-mini-step span { font-size: 12px; font-weight: 700; color: #334155; }
+    .hp7-mini-step small { font-size: 11px; color: var(--muted); }
+    .hp7-mini-risk { display: grid; gap: 8px; }
+    .hp7-mini-risk .bar { height: 8px; border-radius: 999px; background: #edf2f7; overflow: hidden; }
+    .hp7-mini-risk .bar i { display: block; height: 100%; width: 64%; border-radius: inherit; background: linear-gradient(90deg, #fbcfe8 0%, #f59e0b 100%); }
+    .hp7-mini-risk .meta { display: flex; justify-content: space-between; gap: 10px; align-items: center; color: #475569; font-size: 12px; }
+    .hp7-mini-tri { display: inline-flex; gap: 6px; padding: 4px; border-radius: 999px; background: #f8fafc; border: 1px solid var(--line); width: fit-content; }
+    .hp7-mini-tri span { padding: 5px 9px; border-radius: 999px; color: #64748b; font-size: 11px; font-weight: 700; }
+    .hp7-mini-tri .active { background: #eaf2ff; color: var(--blue); border: 1px solid #d9e5f5; }
+    .hp7-mini-report-line { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid #eef2f7; border-bottom: 1px solid #eef2f7; }
+    .hp7-mini-report-line strong { font-size: 13px; color: #334155; }
+    .hp7-mini-report-line span { color: #475569; font-size: 12px; }
+    .hp7-mini-tags { display: flex; flex-wrap: wrap; gap: 9px; }
+    .hp7-mini-tag { display: inline-flex; align-items: center; padding: 6px 9px; border-radius: 999px; background: #f8fafc; border: 1px solid var(--line); color: #334155; font-size: 11px; font-weight: 700; }
+    .hp7-mini-tag.green { background: var(--green-soft); border-color: var(--green-line); color: #166534; }
+    .hp7-mini-tag.orange { background: var(--orange-soft); border-color: var(--orange-line); color: #9a3412; }
+    .hp7-mini-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+    .hp7-mini-links a { display: inline-flex; align-items: center; padding: 8px 10px; border-radius: 999px; border: 1px solid var(--line); background: #f8fafc; color: #334155; font-size: 12px; font-weight: 700; }
+    .hp7-row-connector { display: flex; justify-content: center; color: #cbd5e1; font-size: 18px; font-weight: 700; line-height: 1; margin: -4px 0; }
+
+    .advisorGrid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px; }
+    .advisorCard { padding: 24px; min-height: 260px; border-radius: 20px; border: 1px solid var(--line); background: #fff; box-shadow: var(--shadow); display: grid; gap: 18px; align-content: start; }
+    .advisorVisual { min-height: 104px; border-radius: 16px; border: 1px solid #e6edf6; background: linear-gradient(180deg, #fbfdff, #f5f9ff); padding: 16px; display: grid; align-content: center; gap: 10px; }
+    .advisorCopy { display: grid; gap: 10px; }
+    .advisorCopy h3 { font-size: 18px; line-height: 1.22; letter-spacing: -.02em; color: #10233f; }
+    .advisorCopy p { color: #475569; font-size: 14px; line-height: 1.7; }
+    .advisorMatrix { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+    .advisorMatrix span { min-height: 32px; border-radius: 12px; border: 1px solid var(--line); background: #fff; display: grid; place-items: center; color: #334155; font-size: 11px; font-weight: 800; }
+    .advisorMatrix .active { background: #eef6ff; border-color: #d9e5f5; color: var(--blue); }
+    .advisorChips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .advisorChip { display: inline-flex; align-items: center; padding: 7px 10px; border-radius: 999px; background: #f8fafc; border: 1px solid var(--line); color: #334155; font-size: 11px; font-weight: 800; }
+    .advisorChip.blue { background: var(--blue-soft); border-color: var(--blue-line); color: var(--blue); }
+    .advisorChip.green { background: var(--green-soft); border-color: var(--green-line); color: #166534; }
+    .advisorChip.orange { background: var(--orange-soft); border-color: var(--orange-line); color: #9a3412; }
+    .advisorFoot { margin-top: 18px; }
+    .advisorLink { display: inline-flex; align-items: center; width: fit-content; margin-top: 4px; color: var(--blue); font-size: 13px; font-weight: 800; }
+
+    .hp8-section-head { align-items: flex-start; gap: 24px; margin-bottom: 28px; }
+    .hp8-section-head > div:first-child { display: grid; gap: 6px; max-width: 560px; }
+    .hp8-section-head .sectionDesc { max-width: 420px; color: #475569; line-height: 1.7; }
+    .hp8-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 24px; align-items: stretch; }
+    .hp8-card { padding: 26px; min-height: 392px; border: 1px solid var(--line); border-radius: 20px; background: #fff; box-shadow: var(--shadow); display: grid; grid-template-rows: 160px 1fr; gap: 22px; align-content: start; transition: transform 180ms ease, box-shadow 180ms ease; }
+    .hp8-card:hover { transform: translateY(-2px); box-shadow: 0 14px 26px rgba(15,23,42,.07); }
+    .hp8-card-visual { height: 160px; min-height: 160px; border-radius: 16px; border: 1px solid #dbe7f4; background: linear-gradient(180deg, #fbfdff 0%, #f6faff 100%); padding: 18px; display: grid; align-content: center; gap: 10px; position: relative; overflow: hidden; }
+    .hp8-card-body { display: grid; gap: 8px; align-content: start; }
+    .hp8-card-label { display: inline-flex; align-items: center; justify-content: center; width: fit-content; height: 24px; padding: 0 10px; border-radius: 999px; background: var(--blue-soft); border: 1px solid var(--blue-line); color: var(--blue); font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+    .hp8-card-title { font-size: 20px; line-height: 1.2; letter-spacing: -.02em; color: #10233f; }
+    .hp8-card-desc { color: #475569; font-size: 14px; line-height: 1.7; max-width: 42ch; }
+
+    .footerCta { display: grid; gap: 18px; padding: 34px; }
+    .footerCta h2 { font-size: 28px; letter-spacing: -.03em; }
+    .footerCta p { color: #475569; max-width: 72ch; line-height: 1.7; }
+    .footerActions { display: flex; gap: 12px; flex-wrap: wrap; }
+    .footer { margin-top: 28px; padding: 22px 26px; display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+    .footerBrand { display: grid; gap: 2px; }
+    .footerBrand strong { font-size: 16px; }
+    .footerBrand span { color: var(--muted); font-size: 12px; }
+    .footerNav { display: flex; flex-wrap: wrap; gap: 12px 16px; color: #475569; font-size: 13px; }
+    .footerMeta { color: var(--muted); font-size: 12px; }
+
+    @keyframes hp7SweepRotate { to { transform: rotate(360deg); } }
+    @keyframes hp7StatusBreath { 0%,100% { box-shadow: 0 0 0 0 rgba(96,165,250,.14); } 50% { box-shadow: 0 0 0 6px rgba(96,165,250,0); } }
+    @keyframes hp7CorePulse { 0%, 100% { transform: scale(1); opacity: .78; } 50% { transform: scale(1.14); opacity: 1; } }
+    @keyframes hp7ScanDotPulse { 0%,100% { transform: scale(1); opacity: .92; } 50% { transform: scale(1.1); opacity: 1; } }
+    @keyframes hp7NodeEcho { 0%, 64% { opacity: 0; transform: scale(.68); } 71% { opacity: .44; transform: scale(1); } 84% { opacity: 0; transform: scale(1.56); } 100% { opacity: 0; transform: scale(1.56); } }
+    @keyframes hp7NodeSweepGlow { 0%, 64% { filter: saturate(1) brightness(1); box-shadow: 0 0 0 4px color-mix(in srgb, var(--node, #3b82f6) 18%, transparent); } 71% { filter: saturate(1.28) brightness(1.22); box-shadow: 0 0 0 8px color-mix(in srgb, var(--node, #3b82f6) 25%, transparent), 0 0 12px color-mix(in srgb, var(--node, #3b82f6) 38%, transparent); } 84% { filter: saturate(1) brightness(1); box-shadow: 0 0 0 4px color-mix(in srgb, var(--node, #3b82f6) 18%, transparent); } 100% { filter: saturate(1) brightness(1); box-shadow: 0 0 0 4px color-mix(in srgb, var(--node, #3b82f6) 18%, transparent); } }
+    @keyframes hp7LabelPulse { 0%, 64% { border-color: color-mix(in srgb, var(--node, #dbe5f0) 38%, #dbe5f0); background: rgba(255,255,255,.98); box-shadow: 0 4px 10px rgba(15,23,42,.03); } 71% { border-color: color-mix(in srgb, var(--node, #3b82f6) 54%, #bfdbfe); background: color-mix(in srgb, var(--node, #3b82f6) 13%, white); box-shadow: 0 6px 16px color-mix(in srgb, var(--node, #3b82f6) 14%, transparent); } 84% { border-color: color-mix(in srgb, var(--node, #dbe5f0) 38%, #dbe5f0); background: rgba(255,255,255,.98); box-shadow: 0 4px 10px rgba(15,23,42,.03); } 100% { border-color: color-mix(in srgb, var(--node, #dbe5f0) 38%, #dbe5f0); background: rgba(255,255,255,.98); box-shadow: 0 4px 10px rgba(15,23,42,.03); } }
+    @keyframes fadeRise { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 980px) {
+      .hero,.narrativeGrid,.howGrid,.advisorGrid,.hp8-card-grid { grid-template-columns: 1fr; }
+      .hp7-path-row { grid-template-columns: 1fr; }
+      .nav { align-items: flex-start; }
+      .navLinks { justify-content: flex-start; }
+      .footer { align-items: flex-start; }
+      .productConnector { display: none; }
+    }
+    @media (max-width: 720px) {
+      .shell { padding: 14px; }
+      .nav,.hero,.section,.footer { padding-left: 16px; padding-right: 16px; }
+      .nav,.hero { padding-top: 16px; padding-bottom: 16px; }
+      .hero h1 { font-size: 26px; }
+      .sectionTitle { font-size: 20px; }
+      .footerCta h2 { font-size: 24px; }
+      .navActions,.heroActions,.footerActions { justify-content: stretch; }
+      .btn { width: 100%; }
+      .hp7-mini-signal-row { grid-template-columns: 1fr; }
+      .hp7-decision-note { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="nav" aria-label="HotPulse 导航">
+      <div class="brand"><strong>HotPulse</strong><span>市场 MVP 验证系统</span></div>
+      <nav class="navLinks" aria-label="主导航">
+        <a href="#home">首页</a><a href="#tool">验证工具</a><a href="#opportunity">机会库</a><a href="#briefing">今日简报</a><a href="#case">案例观察</a>
+      </nav>
+      <div class="navActions"><a class="btn" href="#preview">查看样例报告</a><a class="btn btnPrimary" href="#tool">开始验证</a></div>
+    </header>
+
+    <section id="home" class="hero" aria-label="首页首屏">
+      <div class="heroLeft">
+        <div class="eyebrow">Market MVP Validation OS</div>
+        <h1>先发现方向，再判断值不值得投入</h1>
+        <p class="heroSub">HotPulse 把海外市场信号、机会样本和你的产品方向连接起来，拆成可验证的市场假设、验证动作和停止条件，让团队在正式开发、投放和本地化前先完成低成本判断。</p>
+        <div class="heroActions"><a class="btn btnPrimary" href="#tool">开始一次验证规划</a><a class="btn" href="#opportunity">查看机会样本</a></div>
+        <p class="trust"><strong>不替你盲目乐观</strong>，只帮你判断继续、暂缓还是停止。</p>
+        <div class="hp7-decision-gate">
+          <div class="hp7-gate-top">
+            <div class="hp7-gate-title">输入方向后，先过一道决策门</div>
+            <div class="hp7-gate-sub">不替你盲目乐观，只判断继续、暂缓还是停止。</div>
+          </div>
+          <div class="hp7-gate-verdicts" aria-label="三态决策结果">
+            <span class="hp7-verdict is-continue">继续</span>
+            <span class="hp7-verdict is-pause">暂缓</span>
+            <span class="hp7-verdict is-stop">停止</span>
+          </div>
+          <div class="hp7-gate-grid">
+            <div class="hp7-gate-item"><span>最大风险</span><strong>价格接受度</strong></div>
+            <div class="hp7-gate-item"><span>下一步</span><strong>24 小时访谈 / 落地页测试</strong></div>
+          </div>
+        </div>
+      </div>
+      <aside class="heroRight" aria-label="验证结果预览">
+        <div class="hp7-signal-card">
+          <div class="hp7-signal-badge">验证结果预览</div>
+          <div class="hp7-signal-inner">
+            <div class="hp7-signal-header"><span>Signal Radar Active</span><span class="hp7-signal-status">Scanning</span></div>
+            <div class="hp7-scan-stage">
+              <div class="hp7-scan-orb">
+                <svg class="hp7-scan-svg" viewBox="0 0 240 240" aria-hidden="true">
+                  <defs>
+                    <clipPath id="hp7RadarClip"><circle cx="120" cy="120" r="104" /></clipPath>
+                    <radialGradient id="hp7DiscGlow" cx="50%" cy="50%" r="52%">
+                      <stop offset="0%" stop-color="#ffffff" />
+                      <stop offset="54%" stop-color="#f4f9ff" />
+                      <stop offset="100%" stop-color="#e7f1ff" />
+                    </radialGradient>
+                    <radialGradient id="hp7CoreGlow" cx="50%" cy="50%" r="50%">
+                      <stop offset="0%" stop-color="#2563eb" stop-opacity=".34" />
+                      <stop offset="58%" stop-color="#2563eb" stop-opacity=".13" />
+                      <stop offset="100%" stop-color="#2563eb" stop-opacity=".02" />
+                    </radialGradient>
+                    <linearGradient id="hp7TailGradient" x1="120" y1="120" x2="220" y2="84" gradientUnits="userSpaceOnUse">
+                      <stop offset="0%" stop-color="#2563eb" stop-opacity=".01" />
+                      <stop offset="58%" stop-color="#2563eb" stop-opacity=".055" />
+                      <stop offset="100%" stop-color="#60a5fa" stop-opacity=".14" />
+                    </linearGradient>
+                    <linearGradient id="hp7BeamGradient" x1="120" y1="120" x2="224" y2="120" gradientUnits="userSpaceOnUse">
+                      <stop offset="0%" stop-color="#2563eb" stop-opacity=".04" />
+                      <stop offset="52%" stop-color="#2563eb" stop-opacity=".14" />
+                      <stop offset="100%" stop-color="#60a5fa" stop-opacity=".29" />
+                    </linearGradient>
+                    <filter id="hp7BeamGlow" x="-12%" y="-12%" width="124%" height="124%">
+                      <feGaussianBlur stdDeviation="1.7" result="blur" />
+                      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                    </filter>
+                    <filter id="hp7EdgeGlow" x="-16%" y="-16%" width="132%" height="132%">
+                      <feGaussianBlur stdDeviation="1.6" result="blur" />
+                      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                    </filter>
+                    <filter id="hp7HeadGlow" x="-70%" y="-70%" width="240%" height="240%">
+                      <feGaussianBlur stdDeviation="3" result="blur" />
+                      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                    </filter>
+                    <filter id="hp7CoreFilter" x="-45%" y="-45%" width="190%" height="190%">
+                      <feGaussianBlur stdDeviation="2.2" result="blur" />
+                      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                    </filter>
+                  </defs>
+                  <g clip-path="url(#hp7RadarClip)">
+                    <circle class="hp7-scan-disc" cx="120" cy="120" r="104" />
+                    <g class="hp7-sweep-layer">
+                      <path class="hp7-sweep-tail hp7-scan-tail" d="M120 120 L50 43 A104 104 0 0 1 224 120 Z" />
+                      <path class="hp7-scan-beam hp7-sweep-fill" d="M120 120 L102 18 A104 104 0 0 1 224 120 Z" />
+                      <line class="hp7-sweep-edge" x1="144" y1="120" x2="224" y2="120" />
+                      <circle class="hp7-scan-head" cx="224" cy="120" r="4.2" />
+                    </g>
+                  </g>
+                  <circle class="hp7-ring hp7-ring-outer" cx="120" cy="120" r="104" />
+                  <circle class="hp7-ring hp7-ring-mid" cx="120" cy="120" r="72" />
+                  <circle class="hp7-ring hp7-ring-inner" cx="120" cy="120" r="38" />
+                  <circle class="hp7-rim-light" cx="120" cy="120" r="103" />
+                  <circle class="hp7-scan-core hp7-core-pulse" cx="120" cy="120" r="24" />
+                  <circle class="hp7-core-dot" cx="120" cy="120" r="5" />
+                </svg>
+                <div class="hp7-scan-node is-hn"><span class="hp7-scan-dot"></span><span>HN</span></div>
+                <div class="hp7-scan-node is-store"><span class="hp7-scan-dot"></span><span>App Store</span></div>
+                <div class="hp7-scan-node is-ph"><span class="hp7-scan-dot"></span><span>PH</span></div>
+                <div class="hp7-scan-node is-seed"><span class="hp7-scan-dot"></span><span>Local Seed</span></div>
+                <div class="hp7-scan-node is-signals"><span class="hp7-scan-dot"></span><span>Signals</span></div>
+              </div>
+            </div>
+            <div class="hp7-signal-metrics">
+              <div class="hp7-signal-metric"><span>今日样本信号</span><strong>5</strong></div>
+              <div class="hp7-signal-metric"><span>可验证机会</span><strong>3</strong></div>
+              <div class="hp7-signal-metric"><span>当前建议</span><strong>优先验证</strong></div>
+            </div>
+            <div class="hp7-scan-caption">已识别 3 个可验证方向，建议进入 Market MVP 验证。</div>
+          </div>
+        </div>
+        <div class="previewMeta">这是产品状态预览，不是完整机会库。</div>
+      </aside>
+    </section>
+
+    <section class="section" aria-label="问题叙事">
+      <div class="sectionHead"><div><div class="sectionLabel">问题叙事</div><div class="sectionTitle">很多团队不是产品做不出来，而是太早投入了错误市场</div></div></div>
+      <div class="narrativeGrid">
+        <article class="storyCard"><h3>只看到热点，就急着开发</h3><p>市场信号不等于真实需求，热点也不等于适合你做。</p></article>
+        <article class="storyCard"><h3>痛点没确认，就开始投放</h3><p>广告点击不能证明用户愿意付费，更不能证明值得本地化。</p></article>
+        <article class="storyCard"><h3>没有停止条件，就越投越深</h3><p>没有明确停止门槛，团队容易把预算和时间投入错误方向。</p></article>
+      </div>
+    </section>
+
+    <section class="section" aria-label="方法概览">
+      <div class="sectionHead hp8-section-head"><div><div class="sectionLabel">How HotPulse Works</div><div class="sectionTitle">HotPulse 如何把市场信号变成进入判断</div></div><div class="sectionDesc">不是看到热点就开做，而是先把信号、风险和下一步动作拆清楚。</div></div>
+      <div class="howGrid hp8-card-grid">
+        <article class="step hp8-card">
+          <div class="stepVisual hp7-signal-net hp8-card-visual">
+            <span class="hp7-net-line a"></span><span class="hp7-net-line b"></span><span class="hp7-net-line c"></span>
+            <span class="hp7-net-node is-hn">HN</span>
+            <span class="hp7-net-node is-store">App Store</span>
+            <span class="hp7-net-node is-ph">Product Hunt</span>
+            <span class="hp7-net-node is-seed">Local Seed</span>
+            <span class="hp7-net-node is-signals">Signals</span>
+          </div>
+          <div class="stepCopy hp8-card-body">
+            <span class="hp8-card-label">Signal</span>
+            <h3 class="hp8-card-title">捕捉市场信号</h3>
+            <p class="hp8-card-desc">从社区、应用商店、产品发布和本地样本中捕捉变化。</p>
+          </div>
+        </article>
+        <article class="step hp8-card">
+          <div class="stepVisual hp8-card-visual">
+            <div class="hp7-eval-board">
+              <div class="hp7-trend-card">
+                <div class="hp7-trend-line"></div>
+                <div class="hp7-eval-row"><span class="hp7-eval-chip valid">Validatable</span><span class="hp7-eval-chip risk">Payment Risk</span><span class="hp7-eval-chip">Localization</span></div>
+              </div>
+              <div class="hp7-check-strip"><span style="--w:72%"></span><span style="--w:54%"></span><span style="--w:42%"></span></div>
+            </div>
+          </div>
+          <div class="stepCopy hp8-card-body">
+            <span class="hp8-card-label">Evaluation</span>
+            <h3 class="hp8-card-title">识别可验证方向</h3>
+            <p class="hp8-card-desc">系统先过滤噪音，再把方向拆成假设、风险和验证动作。</p>
+          </div>
+        </article>
+        <article class="step hp8-card">
+          <div class="stepVisual hp8-card-visual">
+            <div class="hp7-decision-board">
+              <div class="hp7-decision-states"><span class="hp7-state-pill active">继续</span><span class="hp7-state-pill">暂缓</span><span class="hp7-state-pill">停止</span></div>
+              <div class="hp7-decision-note"><span>Next Move<small>24h / 7d</small></span><span>Stop Gate<small>价格 / 渠道</small></span></div>
+              <div class="hp7-mini-tags"><span class="hp7-mini-tag green">24h</span><span class="hp7-mini-tag">7d</span><span class="hp7-mini-tag orange">Stop Gate</span></div>
+            </div>
+          </div>
+          <div class="stepCopy hp8-card-body">
+            <span class="hp8-card-label">Decision</span>
+            <h3 class="hp8-card-title">输出判断与下一步</h3>
+            <p class="hp8-card-desc">最后输出继续、暂缓或停止，并给出 24 小时和 7 天验证动作。</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="preview" class="section" aria-label="产品预览">
+      <div class="sectionHead"><div><div class="sectionLabel">Product Preview</div><div class="sectionTitle">首页只给入口，真正判断在独立页面完成</div></div></div>
+      <div class="hp7-product-path">
+        <p class="hp7-path-intro">机会雷达发现方向，验证工具判断方向，报告页沉淀结论，并在需要时连接顾问和执行支持。</p>
+        <div class="hp7-path-stack">
+          <article class="hp7-path-row">
+            <div class="hp7-path-main">
+              <div class="hp7-path-step">Step 01</div>
+              <h3 class="hp7-path-title">机会雷达 / 今日简报</h3>
+              <p class="hp7-path-desc">每天沉淀市场信号和可验证方向，帮你发现值得进一步判断的机会。</p>
+              <a class="hp7-path-action" href="#briefing">查看今日简报</a>
+            </div>
+            <div class="hp7-path-visual">
+              <div class="hp7-mini-signal">
+                <div class="hp7-mini-signal-row"><span class="hp7-mini-chip">HN</span><span class="hp7-mini-bar a"><i></i></span><span class="hp7-mini-label">日本 AI 工具讨论上升</span></div>
+                <div class="hp7-mini-signal-row"><span class="hp7-mini-chip">App Store</span><span class="hp7-mini-bar b"><i></i></span><span class="hp7-mini-label">轻量内容工具评分提升</span></div>
+                <div class="hp7-mini-signal-row"><span class="hp7-mini-chip">PH</span><span class="hp7-mini-bar c"><i></i></span><span class="hp7-mini-label">设计工具竞品更新</span></div>
+              </div>
+            </div>
+          </article>
+          <div class="hp7-row-connector">↓</div>
+          <article class="hp7-path-row">
+            <div class="hp7-path-main">
+              <div class="hp7-path-step">Step 02</div>
+              <h3 class="hp7-path-title">市场 MVP 验证工作台</h3>
+              <p class="hp7-path-desc">把方向拆成假设、风险、验证动作和停止门槛。</p>
+              <a class="hp7-path-action" href="#tool">开始验证</a>
+            </div>
+            <div class="hp7-path-visual">
+              <div class="hp7-mini-validation">
+                <div class="hp7-mini-badge">可以验证</div>
+                <div class="hp7-mini-flow"><div class="hp7-mini-step"><span>Input</span><small>方向</small></div><div class="hp7-mini-step"><span>Risk</span><small>价格</small></div><div class="hp7-mini-step"><span>Action</span><small>访谈</small></div></div>
+                <div class="hp7-mini-risk"><div class="meta"><span>最大风险：价格接受度</span><span>64%</span></div><div class="bar"><i></i></div></div>
+              </div>
+            </div>
+          </article>
+          <div class="hp7-row-connector">↓</div>
+          <article class="hp7-path-row">
+            <div class="hp7-path-main">
+              <div class="hp7-path-step">Step 03</div>
+              <h3 class="hp7-path-title">验证报告 / 顾问支持</h3>
+              <p class="hp7-path-desc">沉淀判断结论，并在需要时连接支付、本地化、上架和测试执行支持。</p>
+              <a class="hp7-path-action" href="#advisor">查看执行支持</a>
+            </div>
+            <div class="hp7-path-visual">
+              <div class="hp7-mini-report">
+                <div class="hp7-mini-tri"><span class="active">继续</span><span>暂缓</span><span>停止</span></div>
+                <div class="hp7-mini-report-line"><strong>下一步</strong><span>顾问支持可选</span></div>
+                <div class="hp7-mini-tags"><span class="hp7-mini-tag green">支付适配</span><span class="hp7-mini-tag">本地化</span><span class="hp7-mini-tag">上架测试</span><span class="hp7-mini-tag orange">Token 成本</span><span class="hp7-mini-tag">执行支持</span></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="advisor" class="section" aria-label="顾问支持">
+      <div class="sectionHead hp8-section-head"><div><div class="sectionLabel">Advisor Support</div><div class="sectionTitle">验证之后，不止给结论</div></div><div class="sectionDesc">如果方向值得继续，HotPulse 可以继续帮你把下一步拆成可执行动作。</div></div>
+      <div class="advisorGrid hp8-card-grid">
+        <article class="advisorCard hp8-card">
+          <div class="advisorVisual hp8-card-visual">
+            <div class="advisorMatrix"><span class="active">US</span><span>JP</span><span>用户</span><span>风险</span></div>
+            <div class="advisorChips"><span class="advisorChip blue">优先级</span><span class="advisorChip">进入判断</span></div>
+          </div>
+          <div class="advisorCopy hp8-card-body">
+            <span class="hp8-card-label">Advisory</span>
+            <h3 class="hp8-card-title">市场进入判断</h3>
+            <p class="hp8-card-desc">帮你判断先测哪个市场、先验证哪类用户、先避开哪些风险。</p>
+          </div>
+        </article>
+        <article class="advisorCard hp8-card">
+          <div class="advisorVisual hp8-card-visual">
+            <div class="advisorChips"><span class="advisorChip green">支付</span><span class="advisorChip blue">本地化</span><span class="advisorChip orange">价格</span></div>
+            <div class="hp7-check-strip"><span style="--w:68%"></span><span style="--w:48%"></span></div>
+          </div>
+          <div class="advisorCopy hp8-card-body">
+            <span class="hp8-card-label">Fit Check</span>
+            <h3 class="hp8-card-title">本地化与支付适配</h3>
+            <p class="hp8-card-desc">围绕支付方式、价格、语言和用户习惯，给出进入前检查点。</p>
+          </div>
+        </article>
+        <article class="advisorCard hp8-card">
+          <div class="advisorVisual hp8-card-visual">
+            <div class="advisorChips"><span class="advisorChip blue">24h</span><span class="advisorChip">7d</span><span class="advisorChip green">Launch</span><span class="advisorChip orange">Test</span></div>
+            <div class="hp7-mini-risk"><div class="meta"><span>Next Move</span><span>Ready</span></div><div class="bar"><i></i></div></div>
+          </div>
+          <div class="advisorCopy hp8-card-body">
+            <span class="hp8-card-label">Execution</span>
+            <h3 class="hp8-card-title">上架与测试执行</h3>
+            <p class="hp8-card-desc">把验证结论转成落地页、访谈、上架或小预算测试动作。</p>
+          </div>
+        </article>
+      </div>
+      <div class="advisorFoot"><a class="advisorLink" href="#advisor">查看执行支持</a></div>
+    </section>
+
+    <section class="section footerCta" aria-label="底部 CTA">
+      <div class="sectionHead"><div><div class="sectionLabel">Final CTA</div><h2>先验证，再投入</h2></div></div>
+      <p>在正式开发、投放、本地化和上架前，先用一轮市场 MVP 验证判断方向是否值得继续，并明确下一步怎么做。</p>
+      <div class="footerActions"><a class="btn btnPrimary" href="#tool">开始一次验证规划</a><a class="btn" href="#opportunity">查看机会样本</a></div>
+    </section>
+
+    <footer class="footer" aria-label="页脚">
+      <div class="footerBrand"><strong>HotPulse</strong><span>市场 MVP 验证系统</span></div>
+      <nav class="footerNav" aria-label="页脚导航">
+        <a href="#home">首页</a><a href="#tool">验证工具</a><a href="#opportunity">机会库</a><a href="#briefing">今日简报</a><a href="#case">案例观察</a><a href="#service">执行支持</a><a href="#report">报告页</a>
+      </nav>
+      <div class="footerMeta">HotPulse · Market MVP Validation OS</div>
+    </footer>
+  </main>
+</body>
+</html>
