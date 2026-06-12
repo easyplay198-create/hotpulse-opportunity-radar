@@ -109,6 +109,8 @@ type AnalyzeResponseWithJudgment = AnalyzeResponse & {
 type FirstPartyKnowledgeBlock = {
   level?: 'good' | 'limited' | 'blocked' | 'unknown';
   summary?: string;
+  provenance?: 'knowledge_base' | 'computed' | 'llm_inferred' | 'unknown';
+  confidence?: 'low' | 'medium' | 'high';
 };
 
 type FirstPartyKnowledgeMap = Record<string, FirstPartyKnowledgeBlock | undefined>;
@@ -236,6 +238,7 @@ function firstPartyKnowledgeCards(result: AnalyzeResponse | null) {
       key,
       label,
       level: block?.level ?? 'unknown',
+      provenance: block?.provenance ?? 'unknown',
       summary: block?.summary ?? '暂无该维度的约束判断。',
     };
   });
@@ -253,6 +256,13 @@ function firstPartyLevelLabel(level: FirstPartyKnowledgeBlock['level']) {
   if (level === 'limited') return 'Limited';
   if (level === 'blocked') return 'Blocked';
   return 'Unknown';
+}
+
+function firstPartyProvenanceLabel(provenance: FirstPartyKnowledgeBlock['provenance']) {
+  if (provenance === 'knowledge_base') return '知识库';
+  if (provenance === 'computed') return '规则计算';
+  if (provenance === 'llm_inferred') return 'AI 推断';
+  return '待补充';
 }
 
 function evidenceStatusClass(status: EvidenceDimension['currentStatus']) {
@@ -913,6 +923,7 @@ export function MarketMvpResearchProtocolPanel({ protocol, source, result, missi
                   <span className={firstPartyLevelClass(item.level)}>{firstPartyLevelLabel(item.level)}</span>
                 </div>
                 <p>{shortText(item.summary, 72)}</p>
+                <small className={styles.firstPartyProvenance}>{firstPartyProvenanceLabel(item.provenance)}</small>
               </article>
             ))}
           </div>

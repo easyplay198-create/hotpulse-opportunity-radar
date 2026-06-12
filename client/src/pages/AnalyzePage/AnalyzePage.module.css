@@ -1388,6 +1388,20 @@
   line-height: 1.55;
 }
 
+.firstPartyProvenance {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 24px;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid #dbe7f4;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .firstPartyLevelGood {
   background: #dcfce7;
   color: #166534;

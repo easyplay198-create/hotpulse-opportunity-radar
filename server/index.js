@@ -8,6 +8,7 @@ import { getGitHubOpportunities } from './sources/githubOpportunities.js';
 import { getProductHuntOpportunities } from './sources/productHuntOpportunities.js';
 import { getGdeltOpportunities } from './sources/gdeltOpportunities.js';
 import { getMarketEntryKnowledge } from './sources/marketEntryKnowledge.js';
+import { getFirstPartyCapabilityProfiles, getFirstPartyMarketProfile } from './knowledge/firstPartyKnowledgeBase.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -664,7 +665,15 @@ function buildJudgmentAssumptions(query, profile, intent) {
     targetUser: intent.audience || '未明确',
     painPoint: extractPainPoint(query),
     businessModel: intent.businessModel || '未明确',
-    acquisitionChannel: /SEO|搜索/i.test(query) ? '搜索 / SEO' : /投放|广告/.test(query) ? '小预算投放' : /社群|社区/.test(query) ? '社群 / 社区' : '未明确',
+    acquisitionChannel: /SEO|搜索/i.test(query)
+      ? '搜索 / SEO'
+      : /TikTok|YouTube Shorts|小红书|短视频|内容获客/i.test(query)
+        ? '内容获客'
+        : /投放|广告/.test(query)
+          ? '小预算投放'
+          : /社群|社区/.test(query)
+            ? '社群 / 社区'
+            : '未明确',
     platformForm: extractPlatformForm(query, intent),
     validationScope: `${profile.validationGoal || '需求是否存在'} / ${profile.budgetRange || '未明确预算'}`,
   };
@@ -690,29 +699,147 @@ function buildMissingInfo(assumptions) {
     }));
 }
 
-function knowledgeSignal(key, label, status, impact = 'medium', reportOnly = true) {
+function knowledgeSignal(key, label, status, impact = 'medium', reportOnly = true, provenance = 'computed', evidenceType = 'computed_rule') {
   return {
     key,
     label,
     status,
     impact,
-    evidenceType: 'hypothesis',
+    provenance,
+    evidenceType,
     reportOnly,
   };
 }
 
-function knowledgeBlock(level, summary, signals, verdictImpact, actionImpact) {
+function unknownKnowledgeSignal(key, label, impact = 'high') {
+  return knowledgeSignal(key, label, 'unknown', impact, true, 'unknown', 'unknown');
+}
+
+function knowledgeBaseSignal(key, label, status = 'warn', impact = 'medium') {
+  return knowledgeSignal(key, label, status, impact, true, 'knowledge_base', 'first_party_knowledge');
+}
+
+function blockProvenance(level, signals) {
+  if (level === 'unknown') return 'unknown';
+  if (signals.some((signal) => signal.status === 'fail' && signal.provenance === 'computed')) return 'computed';
+  if (signals.some((signal) => signal.status === 'warn' && signal.provenance === 'computed')) return 'computed';
+  if (signals.some((signal) => signal.provenance === 'knowledge_base')) return 'knowledge_base';
+  if (signals.some((signal) => signal.provenance === 'computed')) return 'computed';
+  return 'unknown';
+}
+
+function blockConfidence(level, signals, provenance) {
+  if (level === 'unknown' || provenance === 'unknown') return 'low';
+  if (signals.some((signal) => signal.status === 'fail')) return 'medium';
+  if (provenance === 'knowledge_base' || provenance === 'computed') return 'medium';
+  return 'low';
+}
+
+function knowledgeBlock(level, summary, signals, verdictImpact, actionImpact, forcedProvenance) {
+  const provenance = forcedProvenance || blockProvenance(level, signals);
   return {
     level,
     summary,
-    signals,
+    provenance,
+    confidence: blockConfidence(level, signals, provenance),
+    signals: signals.map((signal) => ({
+      ...signal,
+      provenance: signal.provenance || provenance,
+      evidenceType: signal.evidenceType || (signal.provenance === 'knowledge_base' ? 'first_party_knowledge' : 'computed_rule'),
+    })),
     verdictImpact,
     actionImpact,
   };
 }
 
+function marketKnowledgeSignal(profile, key, field, label, status = 'warn', impact = 'medium') {
+  const note = profile?.[field]?.[0];
+  if (!note) return null;
+  return knowledgeBaseSignal(key, `${label}：${note}`, status, impact);
+}
+
+function marketComplexityLevel(profile, field) {
+  return profile?.[field] || null;
+}
+
+function mergeLevel(current, next) {
+  const rank = { unknown: 0, good: 1, limited: 2, blocked: 3 };
+  if (!next) return current;
+  if (current === 'unknown') return next;
+  return rank[next] > rank[current] ? next : current;
+}
+
+function levelStatus(level) {
+  if (level === 'good') return 'pass';
+  if (level === 'blocked') return 'fail';
+  if (level === 'unknown') return 'unknown';
+  return 'warn';
+}
+
+function levelImpact(level) {
+  if (level === 'blocked') return 'high';
+  if (level === 'limited') return 'medium';
+  return 'low';
+}
+
 function textIncludesAny(text, patterns) {
   return patterns.some((pattern) => pattern.test(text));
+}
+
+function safePush(array, item) {
+  if (item) array.push(item);
+}
+
+function isTrustedConstraint(block) {
+  return block?.level === 'blocked' && (block.provenance === 'knowledge_base' || block.provenance === 'computed');
+}
+
+function isUntrustedBlocked(block) {
+  return block?.level === 'blocked' && block.provenance === 'llm_inferred';
+}
+
+function confidenceRank(value) {
+  if (value === 'high' || value === '中高' || value === '高') return 3;
+  if (value === 'medium' || value === '中') return 2;
+  return 1;
+}
+
+function confidenceCopy(rank) {
+  if (rank >= 3) return { confidence: '高', confidenceLevel: 'high' };
+  if (rank === 2) return { confidence: '中', confidenceLevel: 'medium' };
+  return { confidence: '低', confidenceLevel: 'low' };
+}
+
+function clampVerdictConfidence(verdict, { evidence, firstPartyKnowledge }) {
+  if (!verdict || verdict.confidence === '样本') return verdict;
+  const evidenceList = Array.isArray(evidence) ? evidence : [];
+  const nonUserEvidence = evidenceList.filter((item) => item.sourceType !== 'user_input');
+  const mediumHighEvidence = nonUserEvidence.filter((item) => item.strength === 'medium' || item.strength === 'high').length;
+  const mostlyLowEvidence = evidenceList.length === 0 || mediumHighEvidence === 0;
+  const knowledgeBlocks = Object.values(firstPartyKnowledge || {});
+  const coreUnknownCount = ['paymentFit', 'localizationCost', 'complianceRisk', 'aiCostRisk', 'acquisitionRisk']
+    .filter((key) => firstPartyKnowledge?.[key]?.level === 'unknown').length;
+  const hasTrustedBlocked = knowledgeBlocks.some((block) => isTrustedConstraint(block));
+  const hasLlmInferred = knowledgeBlocks.some((block) => block?.provenance === 'llm_inferred' || block?.signals?.some((signal) => signal.provenance === 'llm_inferred'));
+
+  let maxRank = 3;
+  if (mostlyLowEvidence || coreUnknownCount >= 3) maxRank = 1;
+  else if (hasTrustedBlocked || hasLlmInferred) maxRank = 2;
+  else if (mediumHighEvidence < 2 || coreUnknownCount > 0) maxRank = 2;
+
+  const currentRank = confidenceRank(verdict.confidenceLevel || verdict.confidence);
+  if (currentRank <= maxRank) return { ...verdict, confidenceClamped: false };
+  const clamped = confidenceCopy(maxRank);
+  return {
+    ...verdict,
+    ...clamped,
+    confidenceClamped: true,
+    confidenceClampReason: mostlyLowEvidence
+      ? '证据强度不足，confidence 最高只能为低。'
+      : coreUnknownCount >= 3
+        ? 'first-party knowledge 多个核心字段未知，confidence 最高只能为低。'
+        : '存在来源或硬约束风险，confidence 已被后端钳制。',
+  };
 }
 
 function buildFirstPartyKnowledge(assumptions, query = '') {
@@ -722,6 +849,8 @@ function buildFirstPartyKnowledge(assumptions, query = '') {
   const productType = String(assumptions.productType || '未明确');
   const platform = String(assumptions.platformForm || assumptions.platform || '未明确');
   const acquisitionChannel = String(assumptions.acquisitionChannel || '未明确');
+  const marketProfile = getFirstPartyMarketProfile(targetMarket);
+  const capabilities = getFirstPartyCapabilityProfiles();
 
   const isSubscription = /订阅|subscription|会员|月费|iap|内购/i.test(businessModel);
   const isOneTime = /一次性|买断|one.?time/i.test(businessModel);
@@ -748,7 +877,7 @@ function buildFirstPartyKnowledge(assumptions, query = '') {
   if (businessModel === '未明确') {
     paymentFitLevel = 'unknown';
     paymentFitSummary = '尚未明确收费方式，无法判断支付适配。';
-    paymentFitSignals.push(knowledgeSignal('payment_model_missing', '未明确收费方式', 'unknown', 'high'));
+    paymentFitSignals.push(unknownKnowledgeSignal('payment_model_missing', '未明确收费方式'));
   } else if (textIncludesAny(text, [/跨境支付|支付牌照|收款产品|金融|借贷/])) {
     paymentFitLevel = 'blocked';
     paymentFitSummary = '方向涉及支付、金融或收款基础设施，进入前必须先确认牌照、结算和风控边界。';
@@ -766,6 +895,14 @@ function buildFirstPartyKnowledge(assumptions, query = '') {
   } else {
     paymentFitSignals.push(knowledgeSignal('payment_interview_needed', '仍需价格接受度访谈', 'warn', 'medium'));
   }
+  if (businessModel !== '未明确' && marketProfile) {
+    const level = marketComplexityLevel(marketProfile, 'paymentComplexity');
+    paymentFitLevel = mergeLevel(paymentFitLevel, level);
+    safePush(paymentFitSignals, marketKnowledgeSignal(marketProfile, 'market_payment_profile', 'paymentNotes', '市场支付知识', levelStatus(level), levelImpact(level)));
+  }
+  if (businessModel !== '未明确' && capabilities.subscriptionPayment && isSubscription) {
+    paymentFitSignals.push(knowledgeBaseSignal('subscription_payment_capability', `${capabilities.subscriptionPayment.label}可作为检查项`, 'pass', 'low'));
+  }
 
   const paymentRiskSignals = [];
   let paymentRiskLevel = 'good';
@@ -773,7 +910,7 @@ function buildFirstPartyKnowledge(assumptions, query = '') {
   if (businessModel === '未明确') {
     paymentRiskLevel = 'unknown';
     paymentRiskSummary = '缺少付费方式，无法判断退款、拒付和价格透明度风险。';
-    paymentRiskSignals.push(knowledgeSignal('payment_risk_unknown', '付费方式缺失', 'unknown', 'high'));
+    paymentRiskSignals.push(unknownKnowledgeSignal('payment_risk_unknown', '付费方式缺失'));
   } else {
     if (isSubscription) {
       paymentRiskLevel = 'limited';
@@ -786,24 +923,44 @@ function buildFirstPartyKnowledge(assumptions, query = '') {
       paymentRiskSignals.push(knowledgeSignal('content_chargeback_risk', '内容/游戏拒付与风控风险', 'warn', 'high'));
     }
   }
+  if (businessModel !== '未明确' && capabilities.antiFraudChargebackSupport) {
+    paymentRiskSignals.push(knowledgeBaseSignal('chargeback_capability', `${capabilities.antiFraudChargebackSupport.label}可作为预检查项`, 'pass', 'low'));
+  }
 
   const localizationSignals = [];
   let localizationLevel = 'good';
   let localizationSummary = '本地化复杂度较低，可先用轻量英文或简化文案验证。';
-  if (/日本|韩国|中东|阿拉伯/i.test(targetMarket)) {
+  if (targetMarket === '未明确') {
+    localizationLevel = 'unknown';
+    localizationSummary = '尚未明确目标市场，无法判断本地化成本。';
+    localizationSignals.push(unknownKnowledgeSignal('localization_market_missing', '目标市场缺失'));
+  } else if (!marketProfile) {
+    localizationLevel = 'unknown';
+    localizationSummary = '当前知识库尚未覆盖该市场，本地化成本需要先补充资料。';
+    localizationSignals.push(unknownKnowledgeSignal('localization_market_not_covered', '知识库未覆盖该市场'));
+  } else {
+    const level = marketComplexityLevel(marketProfile, 'localizationComplexity');
+    localizationLevel = mergeLevel(localizationLevel, level);
+    if (level === 'limited') localizationSummary = marketProfile.localizationNotes?.[0] || localizationSummary;
+    safePush(localizationSignals, marketKnowledgeSignal(marketProfile, 'market_localization_profile', 'localizationNotes', '市场本地化知识', levelStatus(level), levelImpact(level)));
+  }
+  if (localizationLevel !== 'unknown' && /日本|韩国|中东|阿拉伯/i.test(targetMarket)) {
     localizationLevel = 'limited';
     localizationSummary = '目标市场对语言、文化语境和 UI 文案精度要求较高。';
     localizationSignals.push(knowledgeSignal('high_context_market', '高语境市场需要母语文案检查', 'warn', 'high'));
-  } else if (/美国|欧美|欧洲|Global/i.test(targetMarket)) {
+  } else if (localizationLevel !== 'unknown' && /美国|欧美|欧洲|Global/i.test(targetMarket)) {
     localizationSignals.push(knowledgeSignal('english_market_lower_cost', '英语市场本地化成本较低', 'pass', 'low'));
   }
-  if (contentHeavy) {
+  if (localizationLevel !== 'unknown' && contentHeavy) {
     localizationLevel = localizationLevel === 'good' ? 'limited' : localizationLevel;
     localizationSummary = '产品依赖大量内容、陪伴或客服表达，本地化成本会明显提高。';
     localizationSignals.push(knowledgeSignal('content_heavy_localization', '内容/社交/陪伴表达需要本地化验证', 'warn', 'high'));
   }
   if (webSaas && !contentHeavy && localizationLevel === 'good') {
     localizationSignals.push(knowledgeSignal('tool_saas_low_copy', '工具型 SaaS 首版文案负担较低', 'pass', 'low'));
+  }
+  if (localizationLevel !== 'unknown' && capabilities.localizationTranslation) {
+    localizationSignals.push(knowledgeBaseSignal('localization_capability', `${capabilities.localizationTranslation.label}可作为检查项`, 'pass', 'low'));
   }
 
   const complianceSignals = [];
@@ -814,6 +971,12 @@ function buildFirstPartyKnowledge(assumptions, query = '') {
     complianceSummary = '涉及金融、支付牌照、医疗或高监管领域，必须先做合规预审。';
     complianceSignals.push(knowledgeSignal('regulated_category_blocked', '高监管品类需先合规预审', 'fail', 'high'));
   } else {
+    if (marketProfile) {
+      const level = marketComplexityLevel(marketProfile, 'complianceComplexity');
+      complianceLevel = mergeLevel(complianceLevel, level);
+      if (level === 'limited') complianceSummary = marketProfile.complianceNotes?.[0] || complianceSummary;
+      safePush(complianceSignals, marketKnowledgeSignal(marketProfile, 'market_compliance_profile', 'complianceNotes', '市场合规知识', levelStatus(level), levelImpact(level)));
+    }
     if (/ai|人工智能|模型|生成/i.test(text)) {
       complianceLevel = 'limited';
       complianceSummary = 'AI 产品需要检查数据隐私、AI 内容披露和平台审核要求。';
@@ -833,6 +996,9 @@ function buildFirstPartyKnowledge(assumptions, query = '') {
       complianceSummary = '社交、陪伴、UGC、老人或未成年人场景需要更严格的隐私和安全检查。';
       complianceSignals.push(knowledgeSignal('sensitive_user_safety', '敏感人群/UGC 安全风险', 'warn', 'high'));
     }
+  }
+  if (appLike && capabilities.appStoreReviewSupport) {
+    complianceSignals.push(knowledgeBaseSignal('app_review_capability', `${capabilities.appStoreReviewSupport.label}可作为预检查项`, 'pass', 'low'));
   }
 
   const aiCostSignals = [];
@@ -856,6 +1022,9 @@ function buildFirstPartyKnowledge(assumptions, query = '') {
       aiCostSummary = '用户提到成本优势，但仍需用真实调用量验证毛利。';
       aiCostSignals.push(knowledgeSignal('claimed_cost_advantage', '已有成本优势仍需复核', 'warn', 'medium'));
     }
+    if (capabilities.lowCostTokenSupply) {
+      aiCostSignals.push(knowledgeBaseSignal('token_supply_capability', `${capabilities.lowCostTokenSupply.label}可作为成本检查项`, 'pass', 'low'));
+    }
   } else {
     aiCostSignals.push(knowledgeSignal('not_ai_heavy', '非 AI 重推理方向', 'pass', 'low'));
   }
@@ -866,8 +1035,14 @@ function buildFirstPartyKnowledge(assumptions, query = '') {
   if (acquisitionChannel === '未明确') {
     acquisitionLevel = 'unknown';
     acquisitionSummary = '尚未明确获客渠道，无法判断触达成本。';
-    acquisitionSignals.push(knowledgeSignal('acquisition_missing', '获客渠道缺失', 'unknown', 'high'));
+    acquisitionSignals.push(unknownKnowledgeSignal('acquisition_missing', '获客渠道缺失'));
   } else {
+    if (marketProfile) {
+      const level = marketComplexityLevel(marketProfile, 'acquisitionComplexity');
+      acquisitionLevel = mergeLevel(acquisitionLevel, level);
+      if (level === 'limited') acquisitionSummary = marketProfile.acquisitionNotes?.[0] || acquisitionSummary;
+      safePush(acquisitionSignals, marketKnowledgeSignal(marketProfile, 'market_acquisition_profile', 'acquisitionNotes', '市场获客知识', levelStatus(level), levelImpact(level)));
+    }
     if (contentAcquisition) {
       acquisitionLevel = 'limited';
       acquisitionSummary = '内容获客需要素材测试和创意迭代，不能只看单条内容反馈。';
@@ -888,7 +1063,11 @@ function buildFirstPartyKnowledge(assumptions, query = '') {
   const platformSignals = [];
   let platformLevel = 'good';
   let platformSummary = '平台风险较低，优先关注支付、隐私和获客验证。';
-  if (appLike) {
+  if (platform === '未明确' && !appLike && !pluginLike && !gameLike && !webSaas) {
+    platformLevel = 'unknown';
+    platformSummary = '尚未明确产品平台形态，无法判断上架、审核或权限风险。';
+    platformSignals.push(unknownKnowledgeSignal('platform_missing', '平台形态缺失'));
+  } else if (appLike) {
     platformLevel = 'limited';
     platformSummary = '移动 App 存在上架、审核、订阅/IAP 和隐私声明风险。';
     platformSignals.push(knowledgeSignal('app_platform_review', 'App 上架与审核风险', 'warn', 'high'));
@@ -902,6 +1081,11 @@ function buildFirstPartyKnowledge(assumptions, query = '') {
     platformSignals.push(knowledgeSignal('game_platform_policy', '游戏年龄分级与 IAP 政策', 'warn', 'high'));
   } else if (webSaas) {
     platformSignals.push(knowledgeSignal('web_saas_lower_platform_risk', 'Web SaaS 平台依赖较低', 'pass', 'low'));
+  }
+  if (platformLevel !== 'unknown' && marketProfile) {
+    const level = marketComplexityLevel(marketProfile, 'platformComplexity');
+    platformLevel = mergeLevel(platformLevel, level);
+    safePush(platformSignals, marketKnowledgeSignal(marketProfile, 'market_platform_profile', 'platformNotes', '市场平台知识', levelStatus(level), levelImpact(level)));
   }
 
   const dimensions = {
@@ -948,6 +1132,15 @@ function addKnowledgeMissingInfo(missingInfo, knowledge) {
   if (knowledge.acquisitionRisk.level === 'unknown') {
     additions.push({ key: 'acquisitionChannel', label: '获客渠道', reason: '未明确获客渠道，无法判断触达成本。', example: '补充 SEO、社群、投放、应用商店、内容渠道或 outbound。' });
   }
+  if (knowledge.localizationCost.level === 'unknown') {
+    additions.push({ key: 'targetMarket', label: '目标市场', reason: '目标市场缺失或知识库未覆盖，无法判断本地化成本。', example: '补充具体目标市场，并优先选择已覆盖市场做第一轮验证。' });
+  }
+  if (knowledge.platformRisk.level === 'unknown') {
+    additions.push({ key: 'platformForm', label: '平台形态', reason: '平台形态缺失，无法判断上架、审核或权限风险。', example: '补充 Web SaaS、移动 App、浏览器插件、游戏或 API 服务。' });
+  }
+  if (knowledge.complianceRisk.provenance === 'llm_inferred' || knowledge.paymentFit.provenance === 'llm_inferred' || knowledge.aiCostRisk.provenance === 'llm_inferred') {
+    additions.push({ key: 'firstPartyProvenance', label: '判断来源', reason: '存在 AI 推断来源的关键约束，不能作为硬拦截依据。', example: '补充知识库、官方文档或可解释规则来源。' });
+  }
   const seen = new Set(missingInfo.map((item) => item.key));
   return [...missingInfo, ...additions.filter((item) => !seen.has(item.key))];
 }
@@ -961,10 +1154,12 @@ function normalizeFirstPartyEvidence(firstPartyKnowledge) {
     source: 'HotPulse First-Party Knowledge Core',
     sourceType: 'first_party_knowledge',
     url: null,
-    strength: value.signals?.some((signal) => signal.evidenceType === 'first_party_knowledge') ? 'medium' : 'low',
+    strength: value.provenance === 'knowledge_base' || value.signals?.some((signal) => signal.evidenceType === 'first_party_knowledge') ? 'medium' : 'low',
     metadata: {
       dimension: key,
       level: value.level,
+      provenance: value.provenance,
+      confidence: value.confidence,
       evidenceType: value.signals?.[0]?.evidenceType || 'hypothesis',
       reportOnly: value.signals?.some((signal) => signal.reportOnly) ?? true,
     },
@@ -977,16 +1172,25 @@ function paidModelDependsOnPayment(assumptions) {
 
 function firstPartyConstraint(firstPartyKnowledge, assumptions) {
   const unknownCount = Object.values(firstPartyKnowledge).filter((item) => item.level === 'unknown').length;
-  if (firstPartyKnowledge.complianceRisk.level === 'blocked') {
+  if (isTrustedConstraint(firstPartyKnowledge.complianceRisk)) {
     return { code: 'compliance', level: 'hold', nextMove: '先做合规预审', mainRisk: '合规风险可能阻断进入路径', reason: firstPartyKnowledge.complianceRisk.summary };
   }
-  if (firstPartyKnowledge.paymentFit.level === 'blocked' && paidModelDependsOnPayment(assumptions)) {
+  if (isUntrustedBlocked(firstPartyKnowledge.complianceRisk)) {
+    return { code: 'compliance_untrusted', level: 'prevalidate', nextMove: '先补充合规依据，不直接采信 AI 推断', mainRisk: '合规风险来源未经验证', reason: '合规 blocked 来自非可信 provenance，已降级为预验证。' };
+  }
+  if (isTrustedConstraint(firstPartyKnowledge.paymentFit) && paidModelDependsOnPayment(assumptions)) {
     return { code: 'payment', level: 'prevalidate', nextMove: '先做支付适配检查', mainRisk: '支付适配可能阻断商业模式', reason: firstPartyKnowledge.paymentFit.summary };
   }
-  if (firstPartyKnowledge.aiCostRisk.level === 'blocked') {
+  if (isUntrustedBlocked(firstPartyKnowledge.paymentFit)) {
+    return { code: 'payment_untrusted', level: 'prevalidate', nextMove: '先补充支付适配依据', mainRisk: '支付 blocked 来源未经验证', reason: '支付 blocked 来自非可信 provenance，不能作为硬拦截。' };
+  }
+  if (isTrustedConstraint(firstPartyKnowledge.aiCostRisk)) {
     return { code: 'ai_cost', level: 'hold', nextMove: '先测算单位经济模型', mainRisk: 'AI 单位经济模型可能不成立', reason: firstPartyKnowledge.aiCostRisk.summary };
   }
-  if (firstPartyKnowledge.marketEntryComplexity.complexity === 'complex') {
+  if (isUntrustedBlocked(firstPartyKnowledge.aiCostRisk)) {
+    return { code: 'ai_cost_untrusted', level: 'prevalidate', nextMove: '先补充 AI 成本依据', mainRisk: 'AI 成本 blocked 来源未经验证', reason: 'AI 成本 blocked 来自非可信 provenance，不能直接阻断。' };
+  }
+  if ((firstPartyKnowledge.marketEntryComplexity.level === 'blocked' || firstPartyKnowledge.marketEntryComplexity.complexity === 'complex') && firstPartyKnowledge.marketEntryComplexity.provenance === 'computed') {
     return { code: 'complexity', level: 'prevalidate', nextMove: '先做低成本预验证并补齐专项证据', mainRisk: '市场进入复杂度较高', reason: firstPartyKnowledge.marketEntryComplexity.summary };
   }
   if (unknownCount >= 3) {
@@ -1090,8 +1294,15 @@ function normalizeActionStage(raw, fallback) {
   return fallback;
 }
 
-function triggeredItem(trigger, text) {
-  return { trigger, text };
+function triggeredItem(firstPartyKnowledge, trigger, title, description, successMetric = '完成该项检查并记录结论。') {
+  const block = firstPartyKnowledge?.[trigger] || {};
+  return {
+    title,
+    description,
+    successMetric,
+    trigger,
+    provenance: block.provenance || 'unknown',
+  };
 }
 
 function appendTriggeredItems(stage, items) {
@@ -1099,7 +1310,7 @@ function appendTriggeredItems(stage, items) {
   const triggeredItems = [...(stage.triggeredItems || []), ...items];
   return {
     ...stage,
-    steps: [...existingSteps, ...items.map((item) => item.text)].filter(Boolean).slice(0, 6),
+    steps: [...existingSteps, ...items.map((item) => item.title)].filter(Boolean).slice(0, 6),
     triggeredItems,
   };
 }
@@ -1112,47 +1323,55 @@ function firstPartyActionTriggers(firstPartyKnowledge) {
   };
 
   if (firstPartyKnowledge.paymentFit.level === 'limited' || firstPartyKnowledge.paymentFit.level === 'blocked' || firstPartyKnowledge.paymentFit.level === 'unknown') {
-    actions.twentyFourHours.push(
-      triggeredItem('paymentFit', '明确收费方式'),
-      triggeredItem('paymentFit', '验证是否走 IAP / Stripe / 本地支付'),
-      triggeredItem('paymentFit', '做价格接受度访谈'),
-    );
+    if (firstPartyKnowledge.paymentFit.provenance === 'unknown') {
+      actions.twentyFourHours.push(triggeredItem(firstPartyKnowledge, 'paymentFit', '补充收费方式', '先明确订阅、IAP、一次性付费、广告或其他收费路径。', '收费方式被明确记录。'));
+    } else {
+      actions.twentyFourHours.push(
+        triggeredItem(firstPartyKnowledge, 'paymentFit', '明确收费方式', '把收费方式拆成订阅、IAP、Stripe、本地支付或一次性付费路径。', '形成一版可验证的收费路径。'),
+        triggeredItem(firstPartyKnowledge, 'paymentFit', '验证是否走 IAP / Stripe / 本地支付', '根据目标市场和平台检查支付路径是否可执行。', '确认至少 1 条支付路径可进入访谈验证。'),
+        triggeredItem(firstPartyKnowledge, 'paymentFit', '做价格接受度访谈', '围绕目标用户访谈价格、退款和付款意愿。', '10 人中至少 2 人接受某个价格锚点。'),
+      );
+    }
   }
 
   if (firstPartyKnowledge.localizationCost.level === 'limited' || firstPartyKnowledge.localizationCost.level === 'blocked') {
     actions.sevenDays.push(
-      triggeredItem('localizationCost', '做目标语言 landing page 小样本测试'),
-      triggeredItem('localizationCost', '找 3 个母语用户审文案'),
-      triggeredItem('localizationCost', '限制首版文案长度'),
+      triggeredItem(firstPartyKnowledge, 'localizationCost', '做目标语言 landing page 小样本测试', '用目标语言表达核心价值主张，观察理解和留资。', '至少获得 3 条可用文案反馈。'),
+      triggeredItem(firstPartyKnowledge, 'localizationCost', '找 3 个母语用户审文案', '确认语气、长度、场景和信任表达是否自然。', '完成 3 份母语审校反馈。'),
+      triggeredItem(firstPartyKnowledge, 'localizationCost', '限制首版文案长度', '首版只保留必要信息，降低本地化成本和 UI 风险。', '首版核心页面文案可在 1 天内审完。'),
     );
   }
 
   if (firstPartyKnowledge.complianceRisk.level === 'limited' || firstPartyKnowledge.complianceRisk.level === 'blocked') {
     actions.stopGate.push(
-      triggeredItem('complianceRisk', '无法明确平台审核路径时停止开发投入'),
-      triggeredItem('complianceRisk', '订阅价格/取消路径不透明时停止投放'),
+      triggeredItem(firstPartyKnowledge, 'complianceRisk', '无法明确平台审核路径时停止开发投入', '先确认 App、订阅、AI 内容披露、隐私或敏感人群规则。', '审核路径和风险清单被明确记录。'),
+      triggeredItem(firstPartyKnowledge, 'complianceRisk', '订阅价格/取消路径不透明时停止投放', '避免在合规未清楚时扩大获客预算。', '订阅价格和取消路径已可被用户理解。'),
     );
   }
 
   if (firstPartyKnowledge.aiCostRisk.level === 'limited' || firstPartyKnowledge.aiCostRisk.level === 'blocked') {
     actions.twentyFourHours.push(
-      triggeredItem('aiCostRisk', '估算单用户推理成本'),
-      triggeredItem('aiCostRisk', '测试低成本模型替代'),
-      triggeredItem('aiCostRisk', '限制高频调用场景'),
+      triggeredItem(firstPartyKnowledge, 'aiCostRisk', '估算单用户推理成本', '估算一次核心任务的模型、图片、视频或 token 成本。', '得到单用户成本区间和毛利假设。'),
+      triggeredItem(firstPartyKnowledge, 'aiCostRisk', '测试低成本模型替代', '准备低成本模型或缓存策略，验证质量是否足够。', '至少 1 个低成本替代方案可用。'),
+      triggeredItem(firstPartyKnowledge, 'aiCostRisk', '限制高频调用场景', '先限制高频生成或陪伴调用，避免验证期成本失真。', '明确高频调用的限制策略。'),
     );
   }
 
   if (firstPartyKnowledge.acquisitionRisk.level === 'limited' || firstPartyKnowledge.acquisitionRisk.level === 'unknown') {
-    actions.sevenDays.push(
-      triggeredItem('acquisitionRisk', '先测 3 条素材'),
-      triggeredItem('acquisitionRisk', '做小预算投放或 outbound 测试'),
-      triggeredItem('acquisitionRisk', '记录 CPA / 留资率 / 预约率'),
-    );
+    if (firstPartyKnowledge.acquisitionRisk.provenance === 'unknown') {
+      actions.sevenDays.push(triggeredItem(firstPartyKnowledge, 'acquisitionRisk', '补充获客渠道', '先明确 SEO、内容、投放、社群、应用商店或 outbound 中的优先渠道。', '至少确定 1 个可执行获客测试渠道。'));
+    } else {
+      actions.sevenDays.push(
+        triggeredItem(firstPartyKnowledge, 'acquisitionRisk', '先测 3 条素材', '围绕不同卖点准备 3 条内容或广告素材。', '记录每条素材的点击、留言或留资表现。'),
+        triggeredItem(firstPartyKnowledge, 'acquisitionRisk', '做小预算投放或 outbound 测试', '用低成本方式验证渠道触达，不扩大预算。', '获得初步 CPA / 留资率 / 预约率。'),
+        triggeredItem(firstPartyKnowledge, 'acquisitionRisk', '记录 CPA / 留资率 / 预约率', '把渠道反馈转成继续、暂缓或停止判断。', '形成一张渠道测试记录。'),
+      );
+    }
   }
 
   if (firstPartyKnowledge.platformRisk.level === 'limited' || firstPartyKnowledge.platformRisk.level === 'blocked') {
     actions.stopGate.push(
-      triggeredItem('platformRisk', '无法确认上架或插件商店审核路径时暂停开发投入'),
+      triggeredItem(firstPartyKnowledge, 'platformRisk', '无法确认上架或插件商店审核路径时暂停开发投入', '先确认平台审核、权限、IAP、隐私声明和内容规则。', '平台审核路径被明确记录。'),
     );
   }
 
@@ -1210,7 +1429,8 @@ function attachJudgmentSchema(response, { query, profile, loadedSource, mode }) 
   const firstPartyKnowledge = buildFirstPartyKnowledge(assumptions, query);
   const missingInfo = addKnowledgeMissingInfo(buildMissingInfo(assumptions), firstPartyKnowledge);
   const evidence = [...normalizeJudgmentEvidence(response, loadedSource), ...normalizeFirstPartyEvidence(firstPartyKnowledge)];
-  const verdict = buildJudgmentVerdict({ mode, response, evidence, missingInfo, firstPartyKnowledge, assumptions });
+  const rawVerdict = buildJudgmentVerdict({ mode, response, evidence, missingInfo, firstPartyKnowledge, assumptions });
+  const verdict = clampVerdictConfidence(rawVerdict, { evidence, firstPartyKnowledge });
   const actionPlan = buildJudgmentActionPlan(response, firstPartyKnowledge);
   const hypotheses = [
     { id: 'demand', title: '需求假设', statement: `${assumptions.targetUser} 对该痛点有明确需求。`, status: missingInfo.some((item) => item.key === 'targetUser' || item.key === 'painPoint') ? 'needs_input' : 'ready_to_test' },
