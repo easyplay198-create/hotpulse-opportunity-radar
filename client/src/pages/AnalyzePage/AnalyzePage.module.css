@@ -1019,6 +1019,34 @@
   line-height: 1.55;
 }
 
+.llmDraftNotice {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid #dbe7f4;
+  border-radius: 16px;
+  background: #fbfdff;
+}
+
+.llmDraftNotice strong {
+  color: #244b86;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.llmDraftNotice p {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: right;
+}
+
 .decisionContractBar {
   display: grid;
   grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.25fr);

@@ -9,6 +9,8 @@ import { getProductHuntOpportunities } from './sources/productHuntOpportunities.
 import { getGdeltOpportunities } from './sources/gdeltOpportunities.js';
 import { getMarketEntryKnowledge } from './sources/marketEntryKnowledge.js';
 import { getFirstPartyCapabilityProfiles, getFirstPartyMarketProfile } from './knowledge/firstPartyKnowledgeBase.js';
+import { buildLlmDraftForAnalyze } from './analyze/llmOrchestrator.js';
+import { canonicalSnapshotsEqual, createCanonicalInvariantSnapshot } from './analyze/llmGuardrails.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -1464,40 +1466,6 @@ function attachJudgmentSchema(response, { query, profile, loadedSource, mode }) 
   };
 }
 
-function coerceLlmResponseToAnalyzeResponse(llmJson, fallback, loadedSource) {
-  const recommendation = llmJson.recommendation || {};
-  const evidenceBoard = Array.isArray(llmJson.evidenceBoard) ? llmJson.evidenceBoard.map((item) => ({ ...item, url: item.url || undefined, sourceItemId: item.sourceItemId || undefined, note: item.sourceType === 'mock_signal' ? `${item.note || ''} 结构演示，不代表真实市场结论。`.trim() : item.note })) : fallback.evidenceBoard;
-  return {
-    ...fallback,
-    version: '2.1-ai',
-    projectUnderstanding: llmJson.projectUnderstanding || fallback.projectUnderstanding,
-    userConditions: llmJson.userConditions || fallback.userConditions,
-    keyAssumptions: Array.isArray(llmJson.keyAssumptions) ? llmJson.keyAssumptions : fallback.keyAssumptions,
-    analysisTrace: Array.isArray(llmJson.analysisTrace) ? llmJson.analysisTrace : fallback.analysisTrace,
-    evidenceBoard,
-    projectEvaluation: Array.isArray(llmJson.projectEvaluation) ? llmJson.projectEvaluation : fallback.projectEvaluation,
-    riskBottlenecks: Array.isArray(llmJson.riskBottlenecks) ? llmJson.riskBottlenecks : fallback.riskBottlenecks,
-    mvpValidationPlan: Array.isArray(llmJson.mvpValidationPlan) ? llmJson.mvpValidationPlan : fallback.mvpValidationPlan,
-    clarifyingQuestions: Array.isArray(llmJson.clarifyingQuestions) ? llmJson.clarifyingQuestions : fallback.clarifyingQuestions,
-    evidenceGaps: Array.isArray(llmJson.evidenceGaps) ? llmJson.evidenceGaps : fallback.evidenceGaps,
-    warnings: [...(Array.isArray(llmJson.warnings) ? llmJson.warnings : []), ...(loadedSource !== 'real' ? ['当前为 mock/fallback 数据，仅用于结构演示，不代表真实市场结论。'] : [])],
-    recommendation: { ...fallback.recommendation, title: recommendation.title || fallback.recommendation.title, verdict: recommendation.verdict || fallback.recommendation.verdict, summary: recommendation.summary || fallback.recommendation.summary, nextStep: recommendation.nextStep || fallback.recommendation.nextStep },
-  };
-}
-
-async function analyzeWithLLM({ query, profile, source, candidateSignals, fallback }) {
-  if (!process.env.OPENAI_API_KEY) return null;
-  const signalSummary = candidateSignals.slice(0, 12).map((item) => ({ id: item.id, title: item.title, source: item.evidence?.[0]?.source || item.platformId, evidenceStrength: item.evidence?.[0]?.evidenceStrength || 'low', url: item.evidence?.[0]?.url || null, type: item.evidence?.[0]?.type || item.category, targetMarket: item.targetMarket || null, targetUser: item.targetUser || null }));
-  const systemPrompt = '你是 HotPulse 的出海项目验证分析引擎。你的任务不是推荐热门机会，而是围绕用户输入的项目做验证。用户输入是主线，市场信号只是辅助证据。不允许伪造真实数据。如果没有真实证据，必须输出 evidenceGaps 和 warnings。所有判断必须区分 user_input、real_signal、mock_signal、market_knowledge、system_inference。source=mock 时必须提醒 mock 只用于结构演示。MVP 路径和风险必须根据用户条件、资源、预算和项目类型生成。只返回严格 JSON，不要 Markdown。';
-  const userPrompt = JSON.stringify({ query, profile, source, candidateSignals: signalSummary, requiredSchema: ['projectUnderstanding', 'userConditions', 'keyAssumptions', 'analysisTrace', 'evidenceBoard', 'projectEvaluation', 'riskBottlenecks', 'mvpValidationPlan', 'recommendation', 'clarifyingQuestions', 'evidenceGaps', 'warnings'] });
-  const response = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0.2, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] }) });
-  if (!response.ok) throw new Error(`OpenAI request failed: ${response.status}`);
-  const payload = await response.json();
-  const content = payload?.choices?.[0]?.message?.content;
-  if (!content) throw new Error('OpenAI returned empty content');
-  return coerceLlmResponseToAnalyzeResponse(JSON.parse(content), fallback, source);
-}
-
 app.post('/api/analyze', async (req, res) => {
   const body = req.body || {};
   const query = typeof body.query === 'string' ? body.query.trim() : '';
@@ -1505,19 +1473,28 @@ app.post('/api/analyze', async (req, res) => {
   const profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
   const loaded = await loadAnalyzeItems(requestedSource);
   const fallback = buildRuleAnalyzeResponse({ query, profile, source: requestedSource, loaded });
-  try {
-    const aiResult = await analyzeWithLLM({ query, profile, source: loaded.source, candidateSignals: loaded.items, fallback });
-    if (aiResult) {
-      res.json(attachJudgmentSchema(aiResult, { query, profile, loadedSource: loaded.source, mode: 'real' }));
-      return;
-    }
-  } catch (error) {
-    fallback.warnings = [...(fallback.warnings || []), 'AI 语义分析暂不可用，当前结果来自本地规则引擎。'];
-    fallback.analysisTrace = [...(fallback.analysisTrace || []), { step: 'AI 语义分析兜底', status: 'completed', action: '切换到本地规则引擎', finding: error instanceof Error ? error.message : 'AI 分析失败', uncertainty: '结果为规则引擎输出，建议补充真实信号后复核。' }];
-  }
-  if (!process.env.OPENAI_API_KEY) fallback.warnings = [...(fallback.warnings || []), 'AI 语义分析暂不可用，当前结果来自本地规则引擎。'];
   const localMode = loaded.source === 'mock' ? 'mock' : 'fallback';
-  res.json(attachJudgmentSchema(fallback, { query, profile, loadedSource: loaded.source, mode: localMode }));
+  const canonical = attachJudgmentSchema(fallback, { query, profile, loadedSource: loaded.source, mode: localMode });
+  const beforeDraftSnapshot = createCanonicalInvariantSnapshot(canonical);
+  const llmDraft = await buildLlmDraftForAnalyze({
+    canonicalResponse: canonical,
+    apiKey: process.env.OPENAI_API_KEY,
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+  });
+  const responsePayload = {
+    ...canonical,
+    llmDraft,
+    ...(llmDraft.status === 'success' ? { llmMode: 'draft_only' } : {}),
+  };
+  const afterDraftSnapshot = createCanonicalInvariantSnapshot(responsePayload);
+  if (!canonicalSnapshotsEqual(beforeDraftSnapshot, afterDraftSnapshot)) {
+    responsePayload.llmDraft = {
+      ...llmDraft,
+      status: 'rejected',
+      warnings: [...(llmDraft.warnings || []), 'LLM draft was rejected because canonical fields changed after draft generation.'],
+    };
+  }
+  res.json(responsePayload);
 });
 
 const server = app.listen(PORT, () => {

@@ -104,6 +104,9 @@ type AnalyzeResponseWithJudgment = AnalyzeResponse & {
   evidence?: BackendJudgmentEvidence[];
   actionPlan?: BackendJudgment['actionPlan'];
   firstPartyKnowledge?: FirstPartyKnowledgeMap;
+  llmDraft?: {
+    status?: 'not_configured' | 'success' | 'timeout' | 'error' | 'malformed' | 'refused' | 'rejected';
+  };
 };
 
 type FirstPartyKnowledgeBlock = {
@@ -185,6 +188,18 @@ function sourceNotice(source: SourceMode, result: AnalyzeResponse | null) {
     title: 'Mock preview：样本预览',
     body: '以下仅展示验证结果结构，不能作为真实市场判断。',
   };
+}
+
+function llmDraftNotice(result: AnalyzeResponse | null) {
+  const draft = (result as AnalyzeResponseWithJudgment | null)?.llmDraft;
+  if (!draft) return null;
+  if (draft.status === 'success') {
+    return 'AI 草稿已生成，最终判断仍由知识库与规则约束。';
+  }
+  if (draft.status === 'not_configured') {
+    return '当前未启用 AI 草稿，结果来自本地知识库与规则约束。';
+  }
+  return 'AI 草稿未生成，最终判断仍由知识库与规则约束。';
 }
 
 function statusLabel(status: EvidenceStatus): EvidenceDimension['currentStatus'] {
@@ -863,6 +878,7 @@ export function MarketMvpResearchProtocolPanel({ protocol, source, result, missi
   const advisorItems = buildAdvisorItems(protocol, result);
   const activeAdvisorItem = advisorItems.find((item) => `${item.key}:${item.cta}` === activeAdvisorPanel);
   const knowledgeCards = firstPartyKnowledgeCards(result);
+  const draftNotice = llmDraftNotice(result);
 
   return (
     <section className={styles.consoleShell} aria-label="Market MVP 验证结果">
@@ -870,6 +886,13 @@ export function MarketMvpResearchProtocolPanel({ protocol, source, result, missi
         <strong>{notice.title}</strong>
         <p>{notice.body}</p>
       </div>
+
+      {draftNotice ? (
+        <div className={styles.llmDraftNotice}>
+          <strong>AI Draft</strong>
+          <p>{draftNotice}</p>
+        </div>
+      ) : null}
 
       <section className={`${styles.decisionContractBar} ${decisionToneClass(decision.tone)}`}>
         <div className={styles.decisionVerdict}>
