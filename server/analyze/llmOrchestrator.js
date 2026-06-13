@@ -223,8 +223,7 @@ function buildUserFacingSummary(corePayload) {
 }
 
 function buildVerdictNarrative(corePayload) {
-  const nextMove = corePayload.verdict?.nextMove || '先做低成本验证';
-  return `现阶段证据不足，不能作为真实进入结论。建议停留在低成本验证阶段，先执行${nextMove}，再决定是否扩大投入。`;
+  return '现阶段证据不足，不能作为真实进入结论。建议停留在低成本验证阶段，先补充真实用户样本和市场证据，再决定是否扩大投入。';
 }
 
 function actionPlanFallback(corePayload) {

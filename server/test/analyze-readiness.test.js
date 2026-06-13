@@ -120,6 +120,25 @@ function assertPresentationComplete(draft) {
   assert.ok(draft.actionPlanCopy.stopGate.every((item) => item.title && item.copy));
 }
 
+const USER_VISIBLE_ENGINEERING_TERMS = /\b(mock|fallback|API|schema)\b|数据源切换|切换真实数据源|mock preview/i;
+
+function collectUserVisiblePresentationText(draft) {
+  return [
+    draft.narrative.reportTeaser,
+    draft.narrative.userFacingSummary,
+    draft.narrative.verdictNarrative,
+    ...draft.hypothesesCopy.flatMap((item) => [item.title, item.description, item.whyItMatters]),
+    ...draft.actionPlanCopy.twentyFourHours.flatMap((item) => [item.title, item.copy]),
+    ...draft.actionPlanCopy.sevenDays.flatMap((item) => [item.title, item.copy]),
+    ...draft.actionPlanCopy.stopGate.flatMap((item) => [item.title, item.copy]),
+  ].filter(Boolean).join('\n');
+}
+
+function assertUserVisiblePresentationHasNoEngineeringTerms(draft) {
+  const presentationText = collectUserVisiblePresentationText(draft);
+  assert.doesNotMatch(presentationText, USER_VISIBLE_ENGINEERING_TERMS);
+}
+
 test('analysisMode maps loaded source exactly', () => {
   assert.equal(resolveAnalysisMode('real'), 'real');
   assert.equal(resolveAnalysisMode('mock'), 'mock');
@@ -219,6 +238,37 @@ test('not_configured returns deterministic non-empty presentation before any pro
   assertPresentationComplete(draft);
 });
 
+test('not_configured presentation copy does not expose engineering terms', async () => {
+  const canonical = canonicalFixture({
+    verdict: {
+      level: 'preview',
+      title: '样本模式：仅展示验证结果结构',
+      nextMove: '切换真实数据源或补齐真实证据后再判断',
+      mainRisk: '当前是 mock preview，不能作为真实进入判断。',
+      reason: 'mock preview 不包含真实市场证据。',
+    },
+  });
+  let called = false;
+  const draft = await buildLlmDraftForAnalyze({
+    canonicalResponse: canonical,
+    apiKey: '',
+    draftClient: async () => {
+      called = true;
+      return { status: 'success', draft: null };
+    },
+  });
+
+  assert.equal(called, false);
+  assert.equal(draft.status, 'not_configured');
+  assertPresentationComplete(draft);
+  assertUserVisiblePresentationHasNoEngineeringTerms(draft);
+  assert.match(draft.narrative.verdictNarrative, /证据不足/);
+  assert.match(draft.narrative.verdictNarrative, /不能作为真实进入结论/);
+  assert.match(draft.narrative.verdictNarrative, /低成本验证阶段/);
+  assert.match(draft.narrative.verdictNarrative, /真实用户样本和市场证据/);
+  assert.match(draft.narrative.verdictNarrative, /再决定是否扩大投入/);
+});
+
 test('timeout returns deterministic non-empty presentation', async () => {
   const draft = await buildLlmDraftForAnalyze({
     canonicalResponse: canonicalFixture(),
@@ -283,6 +333,39 @@ test('deterministic reportTeaser is stable across provider failures', async () =
       draftClient: async () => ({ status, model: 'stub-model', warnings: [status] }),
     });
     assert.equal(draft.narrative.reportTeaser, expected);
+  }
+});
+
+test('provider failure presentations do not reintroduce engineering terms', async () => {
+  const canonical = canonicalFixture({
+    verdict: {
+      level: 'preview',
+      title: '样本模式：仅展示验证结果结构',
+      nextMove: '切换真实数据源或补齐真实证据后再判断',
+      mainRisk: '当前是 mock preview，不能作为真实进入判断。',
+      reason: 'mock preview 不包含真实市场证据。',
+    },
+  });
+  const rejectedDraft = {
+    ...validModelDraftFor(canonical),
+    hypothesesCopy: [{ id: 'payment', whyItMatters: 'wrong order' }],
+  };
+  const cases = [
+    ['timeout', async () => ({ status: 'timeout', model: 'stub-model', warnings: ['timeout'] })],
+    ['error', async () => ({ status: 'error', model: 'stub-model', warnings: ['provider error'] })],
+    ['malformed', async () => ({ status: 'malformed', model: 'stub-model', warnings: ['bad json'] })],
+    ['rejected', async () => ({ status: 'success', model: 'stub-model', draft: rejectedDraft, warnings: [] })],
+  ];
+
+  for (const [expectedStatus, draftClient] of cases) {
+    const draft = await buildLlmDraftForAnalyze({
+      canonicalResponse: canonical,
+      apiKey: 'test-key',
+      draftClient,
+    });
+    assert.equal(draft.status, expectedStatus);
+    assertPresentationComplete(draft);
+    assertUserVisiblePresentationHasNoEngineeringTerms(draft);
   }
 });
 
