@@ -1480,6 +1480,9 @@ app.post('/api/analyze', async (req, res) => {
     canonicalResponse: canonical,
     apiKey: process.env.OPENAI_API_KEY,
     model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+    endpointStyle: process.env.OPENAI_ENDPOINT_STYLE || 'responses',
+    timeoutMs: process.env.OPENAI_TIMEOUT_MS,
   });
   const responsePayload = {
     ...canonical,

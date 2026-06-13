@@ -1,5 +1,7 @@
 import { callOpenAIResponsesDraft } from './openaiResponsesClient.js';
+import { callOpenAIChatCompletionsDraft } from './openaiChatCompletionsClient.js';
 import { createEmptyLlmDraft, guardLlmDraft } from './llmGuardrails.js';
+import { normalizeOpenAIBaseUrl, normalizeOpenAITimeoutMs, openAIBaseUrlHost } from './openaiResponsesClient.js';
 
 function systemPrompt() {
   return [
@@ -85,20 +87,35 @@ function buildCorePayload(canonicalResponse) {
   };
 }
 
-export async function buildLlmDraftForAnalyze({ canonicalResponse, apiKey, model }) {
+function normalizeEndpointStyle(style) {
+  return style === 'chat_completions' ? 'chat_completions' : 'responses';
+}
+
+export async function buildLlmDraftForAnalyze({ canonicalResponse, apiKey, model, baseUrl, endpointStyle, timeoutMs }) {
   if (!apiKey) return createEmptyLlmDraft('not_configured', { model: null });
 
   const selectedModel = model || 'gpt-4o-mini';
+  const selectedBaseUrl = normalizeOpenAIBaseUrl(baseUrl);
+  const selectedEndpointStyle = normalizeEndpointStyle(endpointStyle);
+  const selectedTimeoutMs = normalizeOpenAITimeoutMs(timeoutMs);
   const corePayload = buildCorePayload(canonicalResponse);
-  const result = await callOpenAIResponsesDraft({
+  const draftClient = selectedEndpointStyle === 'chat_completions'
+    ? callOpenAIChatCompletionsDraft
+    : callOpenAIResponsesDraft;
+  const startedAt = Date.now();
+  const result = await draftClient({
     apiKey,
+    baseUrl: selectedBaseUrl,
     model: selectedModel,
     systemPrompt: systemPrompt(),
     userPrompt: JSON.stringify({
       instruction: 'Write draft-only copy for the Analyze result. Do not modify or restate protected canonical fields outside the allowed schema.',
       corePayload,
     }),
+    timeoutMs: selectedTimeoutMs,
   });
+  const elapsedMs = Date.now() - startedAt;
+  console.info(`HotPulse llmDraft endpoint=${selectedEndpointStyle} host=${openAIBaseUrlHost(selectedBaseUrl)} model=${selectedModel} timeoutMs=${selectedTimeoutMs} status=${result.status} elapsedMs=${elapsedMs}`);
 
   if (result.status !== 'success') {
     return createEmptyLlmDraft(result.status, { model: result.model || selectedModel, warnings: result.warnings || [] });
