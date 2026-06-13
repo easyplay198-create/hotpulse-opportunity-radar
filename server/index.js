@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
+import { pathToFileURL } from 'node:url';
 import { getMockOpportunities } from './sources/mockOpportunities.js';
 import { getHackerNewsOpportunities } from './sources/hackerNewsOpportunities.js';
 import { getAppStoreOpportunities } from './sources/appStoreOpportunities.js';
@@ -378,6 +379,12 @@ function loadAnalyzeItems(source) {
     if (items.length === 0) return { source: 'fallback', items: getMockOpportunities().map(enhanceWithMarketKnowledge) };
     return { source: 'real', items };
   }).catch(() => ({ source: 'fallback', items: getMockOpportunities().map(enhanceWithMarketKnowledge) }));
+}
+
+function resolveAnalysisMode(loadedSource) {
+  if (loadedSource === 'real') return 'real';
+  if (loadedSource === 'fallback') return 'fallback';
+  return 'mock';
 }
 
 function detectTargetMarket(query, profile = {}) {
@@ -1544,7 +1551,7 @@ app.post('/api/analyze', async (req, res) => {
   const profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
   const loaded = await loadAnalyzeItems(requestedSource);
   const fallback = buildRuleAnalyzeResponse({ query, profile, source: requestedSource, loaded });
-  const localMode = loaded.source === 'mock' ? 'mock' : 'fallback';
+  const localMode = resolveAnalysisMode(loaded.source);
   const canonical = attachJudgmentSchema(fallback, { query, profile, loadedSource: loaded.source, mode: localMode });
   const beforeDraftSnapshot = createCanonicalInvariantSnapshot(canonical);
   const llmDraft = await buildLlmDraftForAnalyze({
@@ -1571,22 +1578,40 @@ app.post('/api/analyze', async (req, res) => {
   res.json(responsePayload);
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`HotPulse mock API server running at http://localhost:${PORT}`);
-  console.log(`PID: ${process.pid}`);
-  console.log(`NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
-});
+function startServer(port = PORT) {
+  const server = app.listen(port, () => {
+    console.log(`HotPulse mock API server running at http://localhost:${port}`);
+    console.log(`PID: ${process.pid}`);
+    console.log(`NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
+  });
 
-server.on('error', (error) => {
-  console.error('HotPulse server failed to start', error);
-});
+  server.on('error', (error) => {
+    console.error('HotPulse server failed to start', error);
+  });
 
-process.on('SIGINT', () => {
-  console.log('Received SIGINT, shutting down');
-  server.close(() => process.exit(0));
-});
+  return server;
+}
 
-process.on('SIGTERM', () => {
-  console.log('Received SIGTERM, shutting down');
-  server.close(() => process.exit(0));
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const server = startServer();
+
+  process.on('SIGINT', () => {
+    console.log('Received SIGINT, shutting down');
+    server.close(() => process.exit(0));
+  });
+
+  process.on('SIGTERM', () => {
+    console.log('Received SIGTERM, shutting down');
+    server.close(() => process.exit(0));
+  });
+}
+
+export {
+  app,
+  attachJudgmentSchema,
+  buildJudgmentAssumptions,
+  buildJudgmentVerdict,
+  parseQueryIntent,
+  resolveAnalysisMode,
+  startServer,
+};
