@@ -3,6 +3,8 @@ import { LLM_DRAFT_SCHEMA_VERSION, PROTECTED_LLM_KEYS } from './llmDraftSchema.j
 const URL_PATTERN = /(https?:\/\/|www\.|[\w-]+\.(?:com|ai|io|co|net|org)\b)/i;
 const DIRECT_PUSH_PATTERN = /(建议直接进入|可以立即上线|强烈建议推进|go now|validate now)/i;
 const UNKNOWN_CHANNEL_PATTERN = /(未明确|渠道未知|尚未确定渠道|待补充渠道)/;
+const INFERRED_AUDIENCE_PATTERN = /(初步假设|暂定目标用户|待验证目标用户|可能存在需求|仍需验证|待验证|可能)/;
+const CONFIRMED_AUDIENCE_PATTERN = /(对该痛点有明确需求|就是目标用户|已确认有需求|确定愿意使用)/;
 const MARKET_TERMS = {
   日本: ['东南亚', 'SEA', 'Southeast Asia', '美国', '欧美', '欧洲'],
   东南亚: ['日本', 'Japan', '美国', '欧美', '欧洲'],
@@ -102,7 +104,10 @@ function normalizeVisibleText(value) {
   return value
     .trim()
     .replace(/\s+/g, ' ')
-    .replace(/\s+([，。！？；：、,.!?;:])/g, '$1');
+    .replace(/([\u3400-\u9fff])\s+([\u3400-\u9fff])/g, '$1$2')
+    .replace(/\s+([，。！？；：、,.!?;:])/g, '$1')
+    .replace(/([，。！？；：、])\s+/g, '$1')
+    .replace(/([。！？；：、,.!?;:])\1+/g, '$1');
 }
 
 function normalizeDraftStrings(value, key = '') {
@@ -178,6 +183,19 @@ function validateChannelCopy(draft, canonicalPayload) {
   return null;
 }
 
+function validateInferredAudienceCopy(draft, canonicalPayload) {
+  if (canonicalPayload?.assumptions?.audienceStatus !== 'inferred_hypothesis') return null;
+
+  const demandCopy = draft.hypothesesCopy.find((item) => item.id === 'demand');
+  if (!demandCopy) return 'Inferred audience was written as a confirmed fact.';
+
+  const demandText = [demandCopy.title, demandCopy.description, demandCopy.whyItMatters].join(' ');
+  if (!INFERRED_AUDIENCE_PATTERN.test(demandText) || CONFIRMED_AUDIENCE_PATTERN.test(demandText)) {
+    return 'Inferred audience was written as a confirmed fact.';
+  }
+  return null;
+}
+
 function numbersInText(value) {
   return String(value || '').match(/\d+(?:\.\d+)?%?|\$\d+(?:-\$?\d+)?/g) || [];
 }
@@ -222,6 +240,11 @@ export function guardLlmDraft(rawDraft, canonicalPayload) {
   const channelWarning = validateChannelCopy(normalizedDraft, canonicalPayload);
   if (channelWarning) {
     return createEmptyLlmDraft('rejected', { warnings: [channelWarning] });
+  }
+
+  const inferredAudienceWarning = validateInferredAudienceCopy(normalizedDraft, canonicalPayload);
+  if (inferredAudienceWarning) {
+    return createEmptyLlmDraft('rejected', { warnings: [inferredAudienceWarning] });
   }
 
   const stopGateNumbersWarning = validateStopGateNumbers(normalizedDraft, canonicalPayload);
