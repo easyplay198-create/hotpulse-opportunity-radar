@@ -7,6 +7,7 @@ import { AnalyzeProgressPanel } from '../../components/analyze/AnalyzeProgressPa
 import { AnalyzeWorkbench } from '../../components/analyze/AnalyzeWorkbench';
 import { AnalyzeInputQualityGate } from '../../components/analyze/AnalyzeInputQualityGate';
 import { MarketMvpResearchProtocolPanel } from '../../components/analyze/MarketMvpResearchProtocolPanel';
+import { sourceModeHint, sourceModeLabel, sourceModeTitle } from '../../components/analyze/analyzePresentation';
 import type { AnalyzeProfile, AnalyzeResponse } from '../../types/analyze';
 import { buildMarketMvpResearchProtocol, type MarketMvpResearchProtocol } from '../../lib/marketMvpResearchProtocol';
 import styles from './AnalyzePage.module.css';
@@ -260,29 +261,15 @@ function mergeBackendAssumptions(base: AssumptionItem[], judgment: BackendJudgme
 function sourceModeCopy(source: 'real' | 'mock' | 'fallback', hasError: boolean) {
   if (hasError) {
     return {
-      label: 'Error',
-      title: '服务不可用',
-      hint: '无法生成有效判断，请稍后重试。',
-    };
-  }
-  if (source === 'real') {
-    return {
-      label: 'Real data',
-      title: '真实数据源',
-      hint: '结果可用于进入前判断，但仍需验证证据。',
-    };
-  }
-  if (source === 'fallback') {
-    return {
-      label: 'Fallback',
-      title: '本地规则判断',
-      hint: '当前未使用 LLM 判断内核，结果需先补证据后再决策。',
+      label: sourceModeLabel(source),
+      title: sourceModeTitle(source, true),
+      hint: sourceModeHint(source, true),
     };
   }
   return {
-    label: 'Mock preview',
-    title: '样本预览',
-    hint: '仅展示验证结构，不代表真实市场判断。',
+    label: sourceModeLabel(source),
+    title: sourceModeTitle(source),
+    hint: sourceModeHint(source),
   };
 }
 

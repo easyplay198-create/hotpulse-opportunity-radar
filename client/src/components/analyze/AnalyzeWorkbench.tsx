@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from 'react';
 import styles from '../../pages/AnalyzePage/AnalyzePage.module.css';
+import { sourceModeLabel } from './analyzePresentation';
 
 interface Props {
   query: string;
@@ -25,9 +26,7 @@ const GUIDE_ITEMS = [
 ] as const;
 
 function sourceLabel(source: Props['source']) {
-  if (source === 'real') return 'Real source';
-  if (source === 'fallback') return 'Fallback seed';
-  return 'Mock preview';
+  return sourceModeLabel(source);
 }
 
 export function AnalyzeWorkbench({ query, source, analyzing, onQueryChange, onSubmit, onReset }: Props) {

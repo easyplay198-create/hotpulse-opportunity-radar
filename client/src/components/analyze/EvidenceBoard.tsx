@@ -1,4 +1,5 @@
 import type { EvidenceBoardItem } from '../../types/analyze';
+import { cleanAnalyzePresentationCopy, sourceTypeLabel } from './analyzePresentation';
 
 export function EvidenceBoard({ items, source }: { items?: EvidenceBoardItem[]; source: 'real' | 'mock' | 'fallback' }) {
   const evidence = Array.isArray(items) ? items : [];
@@ -34,9 +35,9 @@ export function EvidenceBoard({ items, source }: { items?: EvidenceBoardItem[]; 
           return (
             <article key={`${item.title}-${item.source}`} style={{ padding: 14, borderRadius: 16, background: '#f8fbff', border: '1px solid #e6edf6' }}>
               <p style={{ margin: 0, color: '#10203d', fontWeight: 800 }}>{item.title}</p>
-              <p style={{ margin: '6px 0 0', color: '#334155' }}><strong>来源：</strong>{item.source} · <strong>类型：</strong>{item.sourceType} · <strong>强度：</strong>{item.evidenceStrength ?? 'low'}</p>
-              <p style={{ margin: '4px 0 0', color: '#334155' }}><strong>支持：</strong>{item.supports}</p>
-              {item.note ? <p style={{ margin: '4px 0 0', color: '#64748b' }}>{item.note}</p> : null}
+              <p style={{ margin: '6px 0 0', color: '#334155' }}><strong>来源：</strong>{cleanAnalyzePresentationCopy(item.source)} · <strong>类型：</strong>{sourceTypeLabel(item.sourceType)} · <strong>强度：</strong>{item.evidenceStrength ?? 'low'}</p>
+              <p style={{ margin: '4px 0 0', color: '#334155' }}><strong>支持：</strong>{cleanAnalyzePresentationCopy(item.supports)}</p>
+              {item.note ? <p style={{ margin: '4px 0 0', color: '#64748b' }}>{cleanAnalyzePresentationCopy(item.note)}</p> : null}
               {isMock ? <p style={{ margin: '4px 0 0', color: '#9a3412' }}>结构演示，不代表真实市场结论</p> : null}
               {isKnowledge ? <p style={{ margin: '4px 0 0', color: '#64748b' }}>市场知识库参考</p> : null}
               {isUserInput ? <p style={{ margin: '4px 0 0', color: '#64748b' }}>来自用户输入</p> : null}

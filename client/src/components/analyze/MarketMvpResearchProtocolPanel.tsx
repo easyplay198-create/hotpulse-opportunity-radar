@@ -2,6 +2,14 @@ import { useState } from 'react';
 import type { MarketMvpResearchProtocol } from '../../lib/marketMvpResearchProtocol';
 import type { AnalyzeResponse } from '../../types/analyze';
 import styles from '../../pages/AnalyzePage/AnalyzePage.module.css';
+import {
+  cleanAnalyzePresentationCopy,
+  safeDecisionNextMove,
+  safeDecisionRisk,
+  safeDecisionTitle,
+  sourceNoticeCopy,
+  sourceTypeLabel,
+} from './analyzePresentation';
 
 type SourceMode = 'real' | 'mock' | 'fallback';
 
@@ -106,6 +114,11 @@ type AnalyzeResponseWithJudgment = AnalyzeResponse & {
   firstPartyKnowledge?: FirstPartyKnowledgeMap;
   llmDraft?: {
     status?: 'not_configured' | 'success' | 'timeout' | 'error' | 'malformed' | 'refused' | 'rejected';
+    narrative?: {
+      reportTeaser?: string;
+      userFacingSummary?: string;
+      verdictNarrative?: string;
+    };
   };
 };
 
@@ -172,22 +185,7 @@ function missingHelp(label: string) {
 
 function sourceNotice(source: SourceMode, result: AnalyzeResponse | null) {
   const mode = getBackendJudgment(result)?.mode ?? source;
-  if (mode === 'real') {
-    return {
-      title: 'Real：LLM + 真实信号判断',
-      body: '当前结果来自真实分析链路，可作为进入前判断参考，但仍需结合证据覆盖和行动计划验证。',
-    };
-  }
-  if (mode === 'fallback') {
-    return {
-      title: 'Fallback：本地规则判断',
-      body: '当前未使用 LLM 真实判断内核，结果来自本地规则与可用信号，建议先补证据后再决策。',
-    };
-  }
-  return {
-    title: 'Mock preview：样本预览',
-    body: '以下仅展示验证结果结构，不能作为真实市场判断。',
-  };
+  return sourceNoticeCopy(mode);
 }
 
 function llmDraftNotice(result: AnalyzeResponse | null) {
@@ -274,10 +272,14 @@ function firstPartyLevelLabel(level: FirstPartyKnowledgeBlock['level']) {
 }
 
 function firstPartyProvenanceLabel(provenance: FirstPartyKnowledgeBlock['provenance']) {
-  if (provenance === 'knowledge_base') return '知识库';
-  if (provenance === 'computed') return '规则计算';
-  if (provenance === 'llm_inferred') return 'AI 推断';
+  if (provenance === 'knowledge_base') return '已知业务信息';
+  if (provenance === 'computed') return '规则判断';
+  if (provenance === 'llm_inferred') return 'AI 辅助推断';
   return '待补充';
+}
+
+function getLlmDraftNarrative(result: AnalyzeResponse | null) {
+  return (result as AnalyzeResponseWithJudgment | null)?.llmDraft?.narrative;
 }
 
 function evidenceStatusClass(status: EvidenceDimension['currentStatus']) {
@@ -313,14 +315,14 @@ function buildEvidenceDimensions(protocol: MarketMvpResearchProtocol, result: An
     return judgmentEvidence.slice(0, 8).map((item, index) => {
       const strength = item.strength ?? 'low';
       const currentStatus: EvidenceDimension['currentStatus'] = strength === 'high' ? '已验证' : strength === 'missing' ? '待补充' : '弱证据';
-      const sourceType = item.sourceType || item.source || 'HotPulse';
+      const rawSourceType = item.sourceType || item.source || 'HotPulse';
       const noUrlNote = !item.url && strength !== 'missing' ? ' 当前未发现真实 URL，强度不标记为 high。' : '';
       return {
         label: item.title || `证据 ${index + 1}`,
         currentStatus,
-        sourceType,
+        sourceType: sourceTypeLabel(rawSourceType),
         evidenceStrength: strength,
-        reason: `${item.summary || '后端判断内核返回的证据项。'}${noUrlNote}`,
+        reason: cleanAnalyzePresentationCopy(`${item.summary || '后端判断内核返回的证据项。'}${noUrlNote}`),
       };
     });
   }
@@ -336,55 +338,55 @@ function buildEvidenceDimensions(protocol: MarketMvpResearchProtocol, result: An
   const dimensions: Array<{ label: string; sourceType: string; status: EvidenceStatus; reason: string }> = [
     {
       label: '用户/输入完整度',
-      sourceType: 'User Input',
+      sourceType: '用户提供信息',
       status: base[0]?.status ?? 'missing',
       reason: base[0]?.reason ?? '需要先补齐用户输入。',
     },
     {
       label: '竞品密度假设',
-      sourceType: 'Community',
+      sourceType: '社区信号',
       status: base[1]?.status ?? 'missing',
       reason: base[1]?.reason ?? '待补充竞品和替代方案证据。',
     },
     {
       label: '目标用户痛点',
-      sourceType: 'Community',
+      sourceType: '社区信号',
       status: base[2]?.status ?? 'missing',
       reason: base[2]?.reason ?? '待访谈或行为信号验证。',
     },
     {
       label: '价格假设',
-      sourceType: 'Payment Knowledge',
+      sourceType: '支付知识',
       status: base[3]?.status ?? 'missing',
       reason: base[3]?.reason ?? '待付费意愿测试。',
     },
     {
       label: '获客渠道',
-      sourceType: 'Search Trend',
+      sourceType: '搜索趋势',
       status: base[4]?.status ?? 'missing',
       reason: base[4]?.reason ?? '待补充渠道触达证据。',
     },
     {
       label: '合规/平台风险',
-      sourceType: 'Compliance Knowledge',
+      sourceType: '合规知识',
       status: base[5]?.status ?? 'missing',
       reason: base[5]?.reason ?? '待上架、平台规则或隐私风险检查。',
     },
     {
       label: '支付适配',
-      sourceType: 'Payment Knowledge',
+      sourceType: '支付知识',
       status: paymentStatus,
       reason: paymentStatus === 'missing' ? '暂无支付方式、订阅或价格证据。' : '已识别支付或价格相关风险，需要专项验证。',
     },
     {
       label: '本地化成本',
-      sourceType: 'Localization Knowledge',
+      sourceType: '本地化知识',
       status: localizationStatus,
       reason: localizationStatus === 'missing' ? '暂无语言、文化或本地化成本证据。' : '已识别本地化相关风险，需要检查表达和使用习惯。',
     },
     {
       label: 'AI 成本压力',
-      sourceType: 'Cost Knowledge',
+      sourceType: '成本知识',
       status: aiCostStatus,
       reason: aiCostStatus === 'missing' ? '暂无 AI 成本或 token 压力证据。' : 'AI 相关方向需要测算 token、模型和毛利空间。',
     },
@@ -395,7 +397,7 @@ function buildEvidenceDimensions(protocol: MarketMvpResearchProtocol, result: An
     currentStatus: statusLabel(item.status),
     sourceType: item.sourceType,
     evidenceStrength: statusToStrength(item.status, externalUrl, source),
-    reason: item.sourceType !== 'User Input' && item.status === 'covered' && !externalUrl
+    reason: item.sourceType !== '用户提供信息' && item.status === 'covered' && !externalUrl
       ? `${item.reason} 当前未发现真实 URL，强度不标记为 high。`
       : item.reason,
   }));
@@ -415,6 +417,7 @@ function buildDecisionContract({
   evidenceDimensions: EvidenceDimension[];
 }): DecisionContract {
   const backendVerdict = getBackendJudgment(result)?.verdict;
+  const llmNarrative = getLlmDraftNarrative(result);
   const verifiedCoverage = evidenceDimensions.filter((item) => item.currentStatus === '已验证').length;
   const mediumOrHigh = evidenceDimensions.filter((item) => item.evidenceStrength === 'medium' || item.evidenceStrength === 'high').length;
   const highCount = evidenceDimensions.filter((item) => item.evidenceStrength === 'high').length;
@@ -426,28 +429,34 @@ function buildDecisionContract({
     const confidence = backendVerdict.confidence || '低';
     const code = backendVerdict.code || '';
     return {
-      verdict: backendVerdict.title || '先做低成本预验证',
+      verdict: safeDecisionTitle(backendVerdict.title, source),
       score: Math.max(0, Math.min(92, backendVerdict.scorePreview ?? baseScore)),
       confidence,
       evidenceCoverage: verifiedCoverage,
       totalEvidence: evidenceDimensions.length,
-      mainRisk: backendVerdict.mainRisk || mainRisk,
-      nextMove: backendVerdict.nextMove || '补齐证据后再判断',
-      reason: backendVerdict.reason || '当前结论来自后端判断内核。',
+      mainRisk: safeDecisionRisk(backendVerdict.mainRisk || mainRisk),
+      nextMove: safeDecisionNextMove(backendVerdict.nextMove || '补齐证据后再判断'),
+      reason: cleanAnalyzePresentationCopy(
+        llmNarrative?.verdictNarrative
+          || llmNarrative?.userFacingSummary
+          || backendVerdict.reason
+          || '当前结论来自判断系统。',
+      ),
       tone: code === 'validate' ? 'ready' : code === 'preview' ? 'preview' : confidence === '低' || code === 'prevalidate' ? 'warning' : 'neutral',
     };
   }
 
   if (source === 'mock') {
     return {
-      verdict: '样本模式：仅展示验证结果结构',
+      verdict: '预验证结果：当前结论仍需真实市场证据支持',
       score: Math.min(baseScore, 25),
-      confidence: '样本',
+      confidence: '低',
       evidenceCoverage: verifiedCoverage,
       totalEvidence: evidenceDimensions.length,
-      mainRisk: '当前是 mock preview，不能作为真实进入判断。',
-      nextMove: '切换真实数据源或补齐真实证据后再判断',
-      reason: 'Mock preview 不代表真实市场信号，因此所有结论都降级为结构预览。',
+      mainRisk: '当前证据仅用于预验证，不能作为真实市场进入结论。',
+      nextMove: '补充真实用户样本和市场证据后再判断',
+      reason: llmNarrative?.verdictNarrative
+        || '当前结论仍需真实市场证据支持，因此先停留在低成本预验证阶段。',
       tone: 'preview',
     };
   }
@@ -476,7 +485,7 @@ function buildDecisionContract({
       mainRisk,
       nextMove: '48 小时补证据验证',
       reason: source === 'fallback'
-        ? '当前使用 fallback 样本，不能直接作为正式判断。'
+        ? '当前证据仍不足以作为正式判断，需要先补充真实用户样本和市场证据。'
         : '证据覆盖不足，应先验证痛点、价格和渠道信号。',
       tone: 'warning',
     };
