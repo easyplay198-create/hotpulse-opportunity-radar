@@ -16,11 +16,10 @@ export const PROTECTED_LLM_KEYS = [
 const copyItemSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['id', 'title', 'copy'],
+  required: ['id', 'title'],
   properties: {
     id: { type: 'string', pattern: '^(twentyFourHours|sevenDays|stopGate)-\\d+$' },
     title: { type: 'string' },
-    copy: { type: 'string' },
   },
 };
 
@@ -32,10 +31,9 @@ export const LLM_DRAFT_OUTPUT_SCHEMA = {
     narrative: {
       type: 'object',
       additionalProperties: false,
-      required: ['verdictNarrative', 'reportTeaser', 'userFacingSummary'],
+      required: ['verdictNarrative', 'userFacingSummary'],
       properties: {
         verdictNarrative: { type: 'string' },
-        reportTeaser: { type: 'string' },
         userFacingSummary: { type: 'string' },
       },
     },
@@ -45,11 +43,9 @@ export const LLM_DRAFT_OUTPUT_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['id', 'title', 'description', 'whyItMatters'],
+        required: ['id', 'whyItMatters'],
         properties: {
           id: { type: 'string', enum: ['demand', 'payment', 'channel'] },
-          title: { type: 'string' },
-          description: { type: 'string' },
           whyItMatters: { type: 'string' },
         },
       },

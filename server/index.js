@@ -412,10 +412,13 @@ function parseQueryIntent(query, profile = {}) {
   else if (has(/支付|订阅|本地支付|内购|收款|转化率|付费|虚拟礼物/)) productCategory = '支付 / 订阅验证';
   else if (has(/ai|人工智能|智能体|agent|自动化|效率工具/)) productCategory = 'AI 工具';
   const audienceMap = { '开发者工具 / 插件': '开发者 / 小型技术团队', 'AI 教育工具': '学生 / 语言学习用户 / 早期付费用户', '社交 / dating 产品': '社交用户 / 匿名社交用户 / 兴趣社区用户 / 早期种子用户', '短剧 / 内容产品': '内容消费用户 / 短剧用户', 'SaaS / B2B 工具': '出海企业 / 中小团队 / B2B 用户', 'AI 图片工具': '创作者 / 设计师 / 内容团队' };
+  const explicitAudience = extractExplicitTargetUser(query, profile);
+  const audience = explicitAudience || audienceMap[productCategory] || '早期目标用户';
+  const audienceStatus = explicitAudience ? 'explicit' : 'inferred_hypothesis';
   const businessModel = has(/订阅|subscription|会员/) ? '订阅' : has(/虚拟礼物|打赏|礼物/) ? '虚拟礼物' : has(/增值|premium|pro/) ? '增值会员' : has(/广告/) ? '广告' : has(/b2b|企业|saas/) ? 'B2B SaaS' : '未明确';
   const flagMap = { 'AI 工具': ['ai-cost', 'subscription', 'competition', 'retention', 'localization'], 'AI 教育工具': ['localization', 'education-fit', 'subscription', 'retention', 'ai-cost', 'competition'], '开发者工具 / 插件': ['developer-adoption', 'workflow-fit', 'integration-risk', 'pricing', 'competition'], '短剧 / 内容产品': ['content-rights', 'payment', 'localization', 'acquisition-cost', 'app-store-compliance'], '社交 / dating 产品': ['user-generated-content', 'privacy', 'content-moderation', 'user-safety', 'cold-start-community', 'app-store-compliance', 'payment-subscription'], '支付 / 订阅验证': ['payment-fit', 'local-payment', 'subscription-conversion', 'refund-risk', 'compliance'] };
   const confidence = productCategory === '通用工具' ? 0.45 : productCategory === '社交 / dating 产品' ? 0.82 : 0.72;
-  return { productCategory, targetMarket, audience: audienceMap[productCategory] || '早期目标用户', businessModel, sensitivityFlags: flagMap[productCategory] || ['acquisition', 'localization', 'payment'], confidence, interpretationNote: `系统将该输入理解为「${productCategory}」方向。目标市场为「${targetMarket}」，商业模式为「${businessModel}」。`, rawQuery: query || '' };
+  return { productCategory, targetMarket, audience, audienceStatus, businessModel, sensitivityFlags: flagMap[productCategory] || ['acquisition', 'localization', 'payment'], confidence, interpretationNote: `系统将该输入理解为「${productCategory}」方向。目标市场为「${targetMarket}」，商业模式为「${businessModel}」。`, rawQuery: query || '' };
 }
 
 function evidenceRank(value) { if (value === 'high') return 3; if (value === 'medium') return 2; return 1; }
@@ -659,6 +662,28 @@ function extractPlatformForm(query, intent) {
   return '未明确';
 }
 
+function cleanAudienceText(value) {
+  return String(value || '')
+    .replace(/^(是|为|给|面向|服务于|目标用户是|目标用户为)/, '')
+    .replace(/[，。,.]$/, '')
+    .trim();
+}
+
+function extractExplicitTargetUser(query, profile = {}) {
+  const profileAudience = profile.targetUser || profile.targetAudience || profile.audience;
+  if (typeof profileAudience === 'string' && profileAudience.trim() && profileAudience.trim() !== '未明确') {
+    return cleanAudienceText(profileAudience);
+  }
+
+  const text = String(query || '');
+  const direct = text.match(/(?:面向|目标用户是|目标用户为|服务于|给)([^，。,.]{2,36})/);
+  if (!direct?.[1]) return null;
+
+  const candidate = cleanAudienceText(direct[1]);
+  if (!candidate || /市场|出海|验证|付费意愿|获客|订阅制|通过/.test(candidate)) return null;
+  return candidate;
+}
+
 const ACQUISITION_CHANNEL_RULES = [
   { pattern: /YouTube\s*Shorts/i, channel: '内容获客', detail: 'YouTube Shorts' },
   { pattern: /TikTok/i, channel: '内容获客', detail: 'TikTok' },
@@ -690,6 +715,26 @@ function buildChannelHypothesisStatement(assumptions) {
   return '渠道待明确，触达早期样本的方式仍待验证。';
 }
 
+function displayAudience(targetUser) {
+  return String(targetUser || '目标用户').replace(/\s*\/\s*/g, '、');
+}
+
+function buildDemandHypothesisStatement(assumptions) {
+  const audience = displayAudience(assumptions.targetUser);
+  if (assumptions.audienceStatus === 'inferred_hypothesis') {
+    return `初步假设${audience}可能存在该痛点，仍需通过真实访谈验证。`;
+  }
+  return `${audience}是否存在该痛点及需求强度仍待验证。`;
+}
+
+function buildPaymentHypothesisStatement(assumptions) {
+  if (!assumptions.businessModel || assumptions.businessModel === '未明确') {
+    return '商业模式待明确，用户付费接受度仍待验证。';
+  }
+  const businessModel = assumptions.businessModel === '订阅' ? '订阅制' : assumptions.businessModel;
+  return `${businessModel}是否能被目标用户接受仍待验证。`;
+}
+
 function buildJudgmentAssumptions(query, profile, intent) {
   const targetMarket = detectTargetMarket(query, profile);
   const acquisition = extractAcquisitionChannel(query);
@@ -697,6 +742,7 @@ function buildJudgmentAssumptions(query, profile, intent) {
     productType: intent.productCategory || '未明确',
     targetMarket,
     targetUser: intent.audience || '未明确',
+    audienceStatus: intent.audienceStatus || 'inferred_hypothesis',
     painPoint: extractPainPoint(query),
     businessModel: intent.businessModel || '未明确',
     acquisitionChannel: acquisition.acquisitionChannel,
@@ -1460,8 +1506,8 @@ function attachJudgmentSchema(response, { query, profile, loadedSource, mode }) 
   const verdict = clampVerdictConfidence(rawVerdict, { evidence, firstPartyKnowledge });
   const actionPlan = buildJudgmentActionPlan(response, firstPartyKnowledge);
   const hypotheses = [
-    { id: 'demand', title: '需求假设', statement: `${assumptions.targetUser} 对该痛点有明确需求。`, status: missingInfo.some((item) => item.key === 'targetUser' || item.key === 'painPoint') ? 'needs_input' : 'ready_to_test' },
-    { id: 'payment', title: '付费假设', statement: `${assumptions.businessModel} 可以被目标用户接受。`, status: assumptions.businessModel === '未明确' ? 'needs_input' : 'ready_to_test' },
+    { id: 'demand', title: '需求假设', statement: buildDemandHypothesisStatement(assumptions), status: missingInfo.some((item) => item.key === 'targetUser' || item.key === 'painPoint') ? 'needs_input' : 'ready_to_test' },
+    { id: 'payment', title: '付费假设', statement: buildPaymentHypothesisStatement(assumptions), status: assumptions.businessModel === '未明确' ? 'needs_input' : 'ready_to_test' },
     { id: 'channel', title: '渠道假设', statement: buildChannelHypothesisStatement(assumptions), status: assumptions.acquisitionChannel === '未明确' ? 'needs_input' : 'ready_to_test' },
   ];
   const judgment = {

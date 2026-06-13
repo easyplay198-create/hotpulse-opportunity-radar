@@ -17,20 +17,19 @@ function systemPrompt() {
     '不要给出与 canonical verdict 相反的建议。',
     '如果 core verdict 是 hold / stop / insufficient，文案不能写成“建议直接推进”。',
     '只能使用 corePayload 中已有的事实、假设和判断。',
-    '如果 corePayload.assumptions.acquisitionChannelDetail 已知，channel 假设文案必须原样包含该具体渠道。',
     'unknown 只能表示信息确实未知，不能覆盖已知字段。',
     '不要新增受众、渠道、国家、平台、数字和风险。',
-    'hypothesesCopy 必须与 corePayload.hypotheses 的 id、数量和顺序完全一致。',
-    'actionPlanCopy 必须与 corePayload.actionPlan 各阶段 items 的 id、数量和顺序完全一致。',
-    'Action Plan 只能转写现有动作，不能改变动作含义、数字或停止门槛。',
+    'hypothesesCopy 只输出 id 和 whyItMatters，id、数量和顺序必须与 corePayload.hypotheses 完全一致。',
+    '不要输出 hypothesis title 或 description，它们由 deterministic core 注入。',
+    'actionPlanCopy 每项只输出 id 和 title，id、数量和顺序必须与 corePayload.actionPlan 各阶段 items 完全一致。',
+    '不要输出 action copy，动作内容和停止门槛由 deterministic core 注入。',
     '同一阶段内 action title 必须表达各自任务目的，不得全部相同。',
-    '如果 audienceStatus 是 inferred_hypothesis，demand hypothesis 必须写成初步假设、暂定目标用户、待验证目标用户、可能存在需求或仍需验证。',
-    '如果 audienceStatus 是 inferred_hypothesis，不得写成“对该痛点有明确需求”“就是目标用户”“已确认有需求”或“确定愿意使用”。',
-    'reportTeaser 只概括本次项目和本轮验证重点，必须优先使用 targetMarket、businessModel、acquisitionChannelDetail 等已知结构化字段。',
-    'reportTeaser 不要写成“关注市场潜力和商业模式可行性”这类泛化句。',
+    'reportTeaser 不需要输出，它由 deterministic core 生成。',
     'userFacingSummary 只说明已经明确什么、仍缺什么、接下来最需要补什么证据，不要重复 verdict。',
     'verdictNarrative 只说明当前能不能做进入决策、为什么、建议停留在哪个验证阶段。',
-    'verdictNarrative 必须保留证据不足、不能作为真实进入结论、需要补真实验证数据的含义。',
+    'verdictNarrative 必须包含“证据不足”或同义表达，必须说明“不能作为真实进入结论”或同义表达，必须说明仍处于“低成本验证”或“预验证”阶段。',
+    'hypothesesCopy 每项只写 whyItMatters，不要复述 description。',
+    'actionPlanCopy 每项 title 要短且具体，只概括对应 id 的动作目的。',
     '用户可见文案禁止出现 mock、fallback、API、schema、数据源切换、工程调试推演。',
     '证据不足和不能作为真实进入结论的含义必须保留。',
   ].join('\n');
@@ -130,6 +129,84 @@ function buildCorePayload(canonicalResponse) {
   };
 }
 
+function businessModelForCopy(value) {
+  if (!value || value === '未明确') return '';
+  return value === '订阅' ? '订阅制' : value;
+}
+
+function acquisitionForCopy(value) {
+  if (!value) return '';
+  return /[A-Za-z]/.test(value) ? `${value} 获客路径` : `${value}获客路径`;
+}
+
+function buildReportTeaser(corePayload) {
+  const assumptions = corePayload.assumptions || {};
+  const productType = assumptions.productType && assumptions.productType !== '未明确'
+    ? assumptions.productType
+    : '当前项目';
+  const targetMarket = assumptions.targetMarket && assumptions.targetMarket !== '未明确'
+    ? assumptions.targetMarket
+    : '目标市场';
+  const businessModel = businessModelForCopy(assumptions.businessModel);
+  const acquisition = assumptions.acquisitionChannelDetail
+    || (assumptions.acquisitionChannel && assumptions.acquisitionChannel !== '未明确' ? assumptions.acquisitionChannel : '');
+  const focus = [
+    businessModel,
+    acquisitionForCopy(acquisition),
+  ].filter(Boolean).join('与');
+
+  if (focus) {
+    return `本次预判聚焦于 ${productType}进入${targetMarket}市场时，${focus}是否值得继续验证。`;
+  }
+  return `本次预判聚焦于 ${productType}进入${targetMarket}市场时，核心进入假设是否值得继续验证。`;
+}
+
+function sameOrderedIds(left = [], right = []) {
+  return left.length === right.length && left.every((item, index) => item?.id === right[index]?.id);
+}
+
+function validateInternalDraftAlignment(modelDraft, corePayload) {
+  if (!sameOrderedIds(modelDraft?.hypothesesCopy || [], corePayload.hypotheses || [])) {
+    return 'LLM draft hypotheses did not match canonical id order.';
+  }
+
+  for (const stage of ['twentyFourHours', 'sevenDays', 'stopGate']) {
+    if (!sameOrderedIds(modelDraft?.actionPlanCopy?.[stage] || [], corePayload.actionPlan?.[stage]?.items || [])) {
+      return `LLM draft action plan did not match canonical ${stage} id order.`;
+    }
+  }
+  return null;
+}
+
+function assembleFinalDraft(modelDraft, corePayload) {
+  const modelHypotheses = new Map((modelDraft.hypothesesCopy || []).map((item) => [item.id, item]));
+  const actionPlanCopy = {};
+
+  for (const stage of ['twentyFourHours', 'sevenDays', 'stopGate']) {
+    const modelItems = new Map((modelDraft.actionPlanCopy?.[stage] || []).map((item) => [item.id, item]));
+    actionPlanCopy[stage] = (corePayload.actionPlan?.[stage]?.items || []).map((item) => ({
+      id: item.id,
+      title: modelItems.get(item.id)?.title || '',
+      copy: item.sourceText,
+    }));
+  }
+
+  return {
+    narrative: {
+      reportTeaser: buildReportTeaser(corePayload),
+      userFacingSummary: modelDraft.narrative?.userFacingSummary || '',
+      verdictNarrative: modelDraft.narrative?.verdictNarrative || '',
+    },
+    hypothesesCopy: (corePayload.hypotheses || []).map((item) => ({
+      id: item.id,
+      title: item.title,
+      description: item.statement,
+      whyItMatters: modelHypotheses.get(item.id)?.whyItMatters || '',
+    })),
+    actionPlanCopy,
+  };
+}
+
 function normalizeEndpointStyle(style) {
   return style === 'chat_completions' ? 'chat_completions' : 'responses';
 }
@@ -164,7 +241,13 @@ export async function buildLlmDraftForAnalyze({ canonicalResponse, apiKey, model
     return createEmptyLlmDraft(result.status, { model: result.model || selectedModel, warnings: result.warnings || [] });
   }
 
-  const guarded = guardLlmDraft(result.draft, corePayload);
+  const alignmentWarning = validateInternalDraftAlignment(result.draft, corePayload);
+  if (alignmentWarning) {
+    return createEmptyLlmDraft('rejected', { model: result.model || selectedModel, warnings: [alignmentWarning] });
+  }
+
+  const finalDraft = assembleFinalDraft(result.draft, corePayload);
+  const guarded = guardLlmDraft(finalDraft, corePayload);
   return {
     ...guarded,
     model: result.model || selectedModel,

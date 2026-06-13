@@ -5,6 +5,25 @@ const DIRECT_PUSH_PATTERN = /(建议直接进入|可以立即上线|强烈建议
 const UNKNOWN_CHANNEL_PATTERN = /(未明确|渠道未知|尚未确定渠道|待补充渠道)/;
 const INFERRED_AUDIENCE_PATTERN = /(初步假设|暂定目标用户|待验证目标用户|可能存在需求|仍需验证|待验证|可能)/;
 const CONFIRMED_AUDIENCE_PATTERN = /(对该痛点有明确需求|就是目标用户|已确认有需求|确定愿意使用)/;
+const ENGINEERING_TERMS_PATTERN = /\b(mock|fallback|API|schema)\b|数据源切换/i;
+const EVIDENCE_GAP_PATTERN = /(证据不足|证据仍不足|证据不充分|缺少真实验证|真实验证数据不足|信息和证据还不够)/;
+const ENTRY_DECISION_PATTERN = /((不能|不可|无法).{0,10}(真实)?进入(决策|结论))|不能作为真实进入结论|不可直接作为进入决策/;
+const VALIDATION_STAGE_PATTERN = /(低成本验证|预验证|真实验证数据|真实访谈|小样本验证)/;
+const CONTROLLED_TERMS = [
+  'YouTube Shorts',
+  'TikTok',
+  '小红书',
+  'Product Hunt',
+  'App Store',
+  'Google Play',
+  'Stripe',
+  'IAP',
+  '日本',
+  '东南亚',
+  '美国',
+  '欧美',
+  '欧洲',
+];
 const MARKET_TERMS = {
   日本: ['东南亚', 'SEA', 'Southeast Asia', '美国', '欧美', '欧洲'],
   东南亚: ['日本', 'Japan', '美国', '欧美', '欧洲'],
@@ -166,6 +185,37 @@ function validateActionPlanAlignment(draft, canonicalPayload) {
   return null;
 }
 
+function validateNonEmptyCopyFields(draft) {
+  for (const item of draft.hypothesesCopy || []) {
+    if (!item.whyItMatters.trim()) return 'LLM draft hypothesis whyItMatters was empty.';
+  }
+
+  for (const stage of ['twentyFourHours', 'sevenDays', 'stopGate']) {
+    const items = draft.actionPlanCopy?.[stage] || [];
+    if (items.some((item) => !item.title.trim())) {
+      return `LLM draft ${stage} action title was empty.`;
+    }
+    if (items.length > 1 && items.every((item) => item.title === items[0].title)) {
+      return `LLM draft ${stage} action titles were all identical.`;
+    }
+  }
+  return null;
+}
+
+function validateActionCopyOwnership(draft, canonicalPayload) {
+  for (const stage of ['twentyFourHours', 'sevenDays', 'stopGate']) {
+    const draftItems = draft.actionPlanCopy?.[stage] || [];
+    const canonicalItems = canonicalPayload?.actionPlan?.[stage]?.items || [];
+    for (let index = 0; index < canonicalItems.length; index += 1) {
+      const expected = normalizeVisibleText(canonicalItems[index]?.sourceText || '');
+      if (draftItems[index]?.copy !== expected) {
+        return `LLM draft ${stage} action copy changed canonical source text.`;
+      }
+    }
+  }
+  return null;
+}
+
 function validateChannelCopy(draft, canonicalPayload) {
   const detail = canonicalPayload?.assumptions?.acquisitionChannelDetail;
   if (!detail) return null;
@@ -179,6 +229,21 @@ function validateChannelCopy(draft, canonicalPayload) {
   }
   if (UNKNOWN_CHANNEL_PATTERN.test(channelText)) {
     return 'LLM draft channel hypothesis marked a known acquisition channel as unknown.';
+  }
+  return null;
+}
+
+function validateReportTeaser(draft, canonicalPayload) {
+  const teaser = draft.narrative?.reportTeaser || '';
+  const assumptions = canonicalPayload?.assumptions || {};
+  const expectedTerms = [
+    assumptions.targetMarket && assumptions.targetMarket !== '未明确' ? assumptions.targetMarket : '',
+    assumptions.businessModel && assumptions.businessModel !== '未明确' ? assumptions.businessModel : '',
+    assumptions.acquisitionChannelDetail || '',
+  ].filter(Boolean);
+  const missing = expectedTerms.filter((term) => !teaser.includes(term));
+  if (missing.length > 0) {
+    return `Deterministic reportTeaser missed known fields: ${missing.join(', ')}`;
   }
   return null;
 }
@@ -215,6 +280,35 @@ function validateStopGateNumbers(draft, canonicalPayload) {
   return null;
 }
 
+function validateNarrativeOwnership(draft) {
+  const text = [
+    draft.narrative?.reportTeaser || '',
+    draft.narrative?.userFacingSummary || '',
+    draft.narrative?.verdictNarrative || '',
+  ].join(' ');
+  if (ENGINEERING_TERMS_PATTERN.test(text)) {
+    return 'LLM draft included engineering-only terms in user-facing copy.';
+  }
+
+  const verdictNarrative = draft.narrative?.verdictNarrative || '';
+  if (!EVIDENCE_GAP_PATTERN.test(verdictNarrative)
+    || !ENTRY_DECISION_PATTERN.test(verdictNarrative)
+    || !VALIDATION_STAGE_PATTERN.test(verdictNarrative)) {
+    return 'LLM draft verdict narrative did not preserve evidence and decision limits.';
+  }
+  return null;
+}
+
+function validateControlledTerms(draft, canonicalPayload) {
+  const draftText = collectStrings(draft).join(' ');
+  const canonicalText = JSON.stringify(canonicalPayload || {});
+  const unsupported = CONTROLLED_TERMS.filter((term) => draftText.includes(term) && !canonicalText.includes(term));
+  if (unsupported.length > 0) {
+    return `LLM draft introduced unsupported controlled terms: ${unsupported.join(', ')}`;
+  }
+  return null;
+}
+
 export function guardLlmDraft(rawDraft, canonicalPayload) {
   const normalizedDraft = normalizeDraftStrings(rawDraft);
 
@@ -237,9 +331,24 @@ export function guardLlmDraft(rawDraft, canonicalPayload) {
     return createEmptyLlmDraft('rejected', { warnings: [actionPlanAlignmentWarning] });
   }
 
+  const nonEmptyWarning = validateNonEmptyCopyFields(normalizedDraft);
+  if (nonEmptyWarning) {
+    return createEmptyLlmDraft('rejected', { warnings: [nonEmptyWarning] });
+  }
+
+  const actionCopyWarning = validateActionCopyOwnership(normalizedDraft, canonicalPayload);
+  if (actionCopyWarning) {
+    return createEmptyLlmDraft('rejected', { warnings: [actionCopyWarning] });
+  }
+
   const channelWarning = validateChannelCopy(normalizedDraft, canonicalPayload);
   if (channelWarning) {
     return createEmptyLlmDraft('rejected', { warnings: [channelWarning] });
+  }
+
+  const reportTeaserWarning = validateReportTeaser(normalizedDraft, canonicalPayload);
+  if (reportTeaserWarning) {
+    return createEmptyLlmDraft('rejected', { warnings: [reportTeaserWarning] });
   }
 
   const inferredAudienceWarning = validateInferredAudienceCopy(normalizedDraft, canonicalPayload);
@@ -250,6 +359,16 @@ export function guardLlmDraft(rawDraft, canonicalPayload) {
   const stopGateNumbersWarning = validateStopGateNumbers(normalizedDraft, canonicalPayload);
   if (stopGateNumbersWarning) {
     return createEmptyLlmDraft('rejected', { warnings: [stopGateNumbersWarning] });
+  }
+
+  const narrativeWarning = validateNarrativeOwnership(normalizedDraft);
+  if (narrativeWarning) {
+    return createEmptyLlmDraft('rejected', { warnings: [narrativeWarning] });
+  }
+
+  const controlledTermsWarning = validateControlledTerms(normalizedDraft, canonicalPayload);
+  if (controlledTermsWarning) {
+    return createEmptyLlmDraft('rejected', { warnings: [controlledTermsWarning] });
   }
 
   const text = collectStrings(normalizedDraft).join('\n');
