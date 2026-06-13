@@ -659,23 +659,48 @@ function extractPlatformForm(query, intent) {
   return '未明确';
 }
 
+const ACQUISITION_CHANNEL_RULES = [
+  { pattern: /YouTube\s*Shorts/i, channel: '内容获客', detail: 'YouTube Shorts' },
+  { pattern: /TikTok/i, channel: '内容获客', detail: 'TikTok' },
+  { pattern: /小红书/i, channel: '内容获客', detail: '小红书' },
+  { pattern: /短视频/i, channel: '内容获客', detail: '短视频' },
+  { pattern: /内容获客/i, channel: '内容获客', detail: null },
+  { pattern: /SEO/i, channel: '搜索 / SEO', detail: 'SEO' },
+  { pattern: /搜索/i, channel: '搜索 / SEO', detail: null },
+  { pattern: /投放|广告/, channel: '小预算投放', detail: null },
+  { pattern: /社群|社区/, channel: '社群 / 社区', detail: null },
+];
+
+function extractAcquisitionChannel(query) {
+  const text = String(query || '');
+  const matched = ACQUISITION_CHANNEL_RULES.find((rule) => rule.pattern.test(text));
+  return {
+    acquisitionChannel: matched?.channel || '未明确',
+    acquisitionChannelDetail: matched?.detail || null,
+  };
+}
+
+function buildChannelHypothesisStatement(assumptions) {
+  if (assumptions.acquisitionChannelDetail) {
+    return `${assumptions.acquisitionChannelDetail} 能否低成本触达早期样本仍待验证。`;
+  }
+  if (assumptions.acquisitionChannel && assumptions.acquisitionChannel !== '未明确') {
+    return `${assumptions.acquisitionChannel} 能否低成本触达早期样本仍待验证。`;
+  }
+  return '渠道待明确，触达早期样本的方式仍待验证。';
+}
+
 function buildJudgmentAssumptions(query, profile, intent) {
   const targetMarket = detectTargetMarket(query, profile);
+  const acquisition = extractAcquisitionChannel(query);
   return {
     productType: intent.productCategory || '未明确',
     targetMarket,
     targetUser: intent.audience || '未明确',
     painPoint: extractPainPoint(query),
     businessModel: intent.businessModel || '未明确',
-    acquisitionChannel: /SEO|搜索/i.test(query)
-      ? '搜索 / SEO'
-      : /TikTok|YouTube Shorts|小红书|短视频|内容获客/i.test(query)
-        ? '内容获客'
-        : /投放|广告/.test(query)
-          ? '小预算投放'
-          : /社群|社区/.test(query)
-            ? '社群 / 社区'
-            : '未明确',
+    acquisitionChannel: acquisition.acquisitionChannel,
+    acquisitionChannelDetail: acquisition.acquisitionChannelDetail,
     platformForm: extractPlatformForm(query, intent),
     validationScope: `${profile.validationGoal || '需求是否存在'} / ${profile.budgetRange || '未明确预算'}`,
   };
@@ -1437,7 +1462,7 @@ function attachJudgmentSchema(response, { query, profile, loadedSource, mode }) 
   const hypotheses = [
     { id: 'demand', title: '需求假设', statement: `${assumptions.targetUser} 对该痛点有明确需求。`, status: missingInfo.some((item) => item.key === 'targetUser' || item.key === 'painPoint') ? 'needs_input' : 'ready_to_test' },
     { id: 'payment', title: '付费假设', statement: `${assumptions.businessModel} 可以被目标用户接受。`, status: assumptions.businessModel === '未明确' ? 'needs_input' : 'ready_to_test' },
-    { id: 'channel', title: '渠道假设', statement: `${assumptions.acquisitionChannel} 能低成本触达早期样本。`, status: assumptions.acquisitionChannel === '未明确' ? 'needs_input' : 'ready_to_test' },
+    { id: 'channel', title: '渠道假设', statement: buildChannelHypothesisStatement(assumptions), status: assumptions.acquisitionChannel === '未明确' ? 'needs_input' : 'ready_to_test' },
   ];
   const judgment = {
     mode,

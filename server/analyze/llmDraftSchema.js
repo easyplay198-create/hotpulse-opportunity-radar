@@ -16,8 +16,9 @@ export const PROTECTED_LLM_KEYS = [
 const copyItemSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['title', 'copy'],
+  required: ['id', 'title', 'copy'],
   properties: {
+    id: { type: 'string', pattern: '^(twentyFourHours|sevenDays|stopGate)-\\d+$' },
     title: { type: 'string' },
     copy: { type: 'string' },
   },
@@ -44,8 +45,9 @@ export const LLM_DRAFT_OUTPUT_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['title', 'description', 'whyItMatters'],
+        required: ['id', 'title', 'description', 'whyItMatters'],
         properties: {
+          id: { type: 'string', enum: ['demand', 'payment', 'channel'] },
           title: { type: 'string' },
           description: { type: 'string' },
           whyItMatters: { type: 'string' },
@@ -59,17 +61,17 @@ export const LLM_DRAFT_OUTPUT_SCHEMA = {
       properties: {
         twentyFourHours: {
           type: 'array',
-          maxItems: 4,
+          maxItems: 6,
           items: copyItemSchema,
         },
         sevenDays: {
           type: 'array',
-          maxItems: 4,
+          maxItems: 6,
           items: copyItemSchema,
         },
         stopGate: {
           type: 'array',
-          maxItems: 4,
+          maxItems: 6,
           items: copyItemSchema,
         },
       },

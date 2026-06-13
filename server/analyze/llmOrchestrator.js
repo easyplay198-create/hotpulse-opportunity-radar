@@ -16,6 +16,18 @@ function systemPrompt() {
     '不要声称某个 unknown 已经 resolved。',
     '不要给出与 canonical verdict 相反的建议。',
     '如果 core verdict 是 hold / stop / insufficient，文案不能写成“建议直接推进”。',
+    '只能使用 corePayload 中已有的事实、假设和判断。',
+    '如果 corePayload.assumptions.acquisitionChannelDetail 已知，channel 假设文案必须原样包含该具体渠道。',
+    'unknown 只能表示信息确实未知，不能覆盖已知字段。',
+    '不要新增受众、渠道、国家、平台、数字和风险。',
+    'hypothesesCopy 必须与 corePayload.hypotheses 的 id、数量和顺序完全一致。',
+    'actionPlanCopy 必须与 corePayload.actionPlan 各阶段 items 的 id、数量和顺序完全一致。',
+    'Action Plan 只能转写现有动作，不能改变动作含义、数字或停止门槛。',
+    '同一阶段内 action title 必须表达各自任务目的，不得全部相同。',
+    '如果 audienceStatus 是 inferred_hypothesis，受众只能写成初步假设、待验证目标用户或暂定目标用户。',
+    'reportTeaser 写本次预判关注点；userFacingSummary 写当前信息与证据缺口；verdictNarrative 写当前能否做进入决策及原因。',
+    '用户可见文案禁止出现 mock、fallback、API、schema、数据源切换、工程调试推演。',
+    '证据不足和不能作为真实进入结论的含义必须保留。',
   ].join('\n');
 }
 
@@ -30,11 +42,22 @@ function compactFirstPartyKnowledge(knowledge = {}) {
   ]));
 }
 
+function actionStageItems(stageKey, stage = {}) {
+  const steps = Array.isArray(stage.steps) ? stage.steps : [];
+  return steps.map((step, index) => ({
+    id: `${stageKey}-${index}`,
+    title: step,
+    sourceText: step,
+  }));
+}
+
 function compactActionPlan(actionPlan = {}) {
   return {
     twentyFourHours: {
       title: actionPlan.twentyFourHours?.title,
-      steps: actionPlan.twentyFourHours?.steps || [],
+      stopCondition: actionPlan.twentyFourHours?.stopCondition,
+      successMetric: actionPlan.twentyFourHours?.successMetric,
+      items: actionStageItems('twentyFourHours', actionPlan.twentyFourHours),
       triggeredItems: (actionPlan.twentyFourHours?.triggeredItems || []).map((item) => ({
         title: item.title,
         trigger: item.trigger,
@@ -43,7 +66,9 @@ function compactActionPlan(actionPlan = {}) {
     },
     sevenDays: {
       title: actionPlan.sevenDays?.title,
-      steps: actionPlan.sevenDays?.steps || [],
+      stopCondition: actionPlan.sevenDays?.stopCondition,
+      successMetric: actionPlan.sevenDays?.successMetric,
+      items: actionStageItems('sevenDays', actionPlan.sevenDays),
       triggeredItems: (actionPlan.sevenDays?.triggeredItems || []).map((item) => ({
         title: item.title,
         trigger: item.trigger,
@@ -52,7 +77,9 @@ function compactActionPlan(actionPlan = {}) {
     },
     stopGate: {
       title: actionPlan.stopGate?.title,
-      steps: actionPlan.stopGate?.steps || [],
+      stopCondition: actionPlan.stopGate?.stopCondition,
+      successMetric: actionPlan.stopGate?.successMetric,
+      items: actionStageItems('stopGate', actionPlan.stopGate),
       triggeredItems: (actionPlan.stopGate?.triggeredItems || []).map((item) => ({
         title: item.title,
         trigger: item.trigger,
@@ -62,15 +89,26 @@ function compactActionPlan(actionPlan = {}) {
   };
 }
 
+function compactHypotheses(hypotheses = []) {
+  return hypotheses.map((item) => ({
+    id: item.id,
+    title: item.title,
+    statement: item.statement,
+    status: item.status,
+  }));
+}
+
 function buildCorePayload(canonicalResponse) {
   return {
     assumptions: {
       productType: canonicalResponse.assumptions?.productType,
       targetMarket: canonicalResponse.assumptions?.targetMarket,
       targetUser: canonicalResponse.assumptions?.targetUser,
+      audienceStatus: 'inferred_hypothesis',
       painPoint: canonicalResponse.assumptions?.painPoint,
       businessModel: canonicalResponse.assumptions?.businessModel,
       acquisitionChannel: canonicalResponse.assumptions?.acquisitionChannel,
+      acquisitionChannelDetail: canonicalResponse.assumptions?.acquisitionChannelDetail || null,
       platformForm: canonicalResponse.assumptions?.platformForm,
     },
     missingInfo: canonicalResponse.missingInfo || [],
@@ -82,7 +120,7 @@ function buildCorePayload(canonicalResponse) {
       reason: canonicalResponse.verdict?.reason,
     },
     firstPartyKnowledge: compactFirstPartyKnowledge(canonicalResponse.firstPartyKnowledge),
-    hypotheses: canonicalResponse.hypotheses || [],
+    hypotheses: compactHypotheses(canonicalResponse.hypotheses || []),
     actionPlan: compactActionPlan(canonicalResponse.actionPlan),
   };
 }
