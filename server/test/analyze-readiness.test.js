@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import {
   app,
+  attachJudgmentSchema,
   buildJudgmentAssumptions,
   buildJudgmentVerdict,
+  buildRuleAnalyzeResponse,
+  loadAnalyzeItemsWithProviders,
   parseQueryIntent,
   resolveAnalysisMode,
 } from '../index.js';
@@ -139,10 +142,211 @@ function assertUserVisiblePresentationHasNoEngineeringTerms(draft) {
   assert.doesNotMatch(presentationText, USER_VISIBLE_ENGINEERING_TERMS);
 }
 
+function providerFixtureItem({
+  id,
+  source,
+  type = 'community_signal',
+  retrievedAt = '2026-06-13T00:00:00.000Z',
+  evidenceStrength = 'medium',
+}) {
+  return {
+    id,
+    title: `${source} validation signal`,
+    source,
+    sourceType: 'real',
+    category: 'AI App',
+    summary: `${source} summary`,
+    targetMarket: 'Japan',
+    productType: 'AI tool',
+    tags: ['AI', 'Japan'],
+    trendVelocity: 72,
+    discussionVolume: 68,
+    contentFit: 74,
+    commercialValue: 70,
+    competitionLevel: 45,
+    paymentRisk: 35,
+    localizationRisk: 30,
+    competitionRisk: 45,
+    evidence: [
+      {
+        title: `${source} evidence`,
+        url: `https://example.com/${id}`,
+        source,
+        type,
+        retrievedAt,
+        evidenceStrength,
+        metadata: { provider: source },
+      },
+    ],
+  };
+}
+
+function analyzeTestProviders(overrides = {}) {
+  const loaders = {
+    hackerNews: async () => [],
+    appStore: async () => [],
+    github: async () => [],
+    productHunt: async () => ({ ok: false, skippedReason: 'Product Hunt token not configured' }),
+    gdelt: async () => ({ ok: false, skippedReason: 'GDELT returned no usable articles' }),
+    ...overrides,
+  };
+
+  return [
+    { key: 'hackerNews', source: 'Hacker News', load: loaders.hackerNews },
+    { key: 'appStore', source: 'Apple App Store', load: loaders.appStore },
+    { key: 'github', source: 'GitHub', load: loaders.github },
+    { key: 'productHunt', source: 'Product Hunt', load: loaders.productHunt },
+    { key: 'gdelt', source: 'GDELT', load: loaders.gdelt },
+  ];
+}
+
+function analysisResponseForLoaded(loaded, query = 'AI image tool for Japan subscription validation') {
+  return {
+    source: loaded.source,
+    generatedAt: '2026-06-13T00:00:00.000Z',
+    matchedSignals: loaded.items,
+    evidenceBoard: [],
+    recommendation: { matchScore: loaded.source === 'real' ? 90 : 20 },
+    riskBottlenecks: loaded.source === 'real' ? [{ title: 'channel risk' }] : [],
+    providerStats: loaded.providerStats,
+    parsedIntent: parseQueryIntent(query, {}),
+  };
+}
+
+function canonicalFromLoaded(loaded, query = 'AI image tool for Japan subscription validation') {
+  return attachJudgmentSchema(analysisResponseForLoaded(loaded, query), {
+    query,
+    profile: {},
+    loadedSource: loaded.source,
+    mode: resolveAnalysisMode(loaded.source),
+  });
+}
+
 test('analysisMode maps loaded source exactly', () => {
   assert.equal(resolveAnalysisMode('real'), 'real');
   assert.equal(resolveAnalysisMode('mock'), 'mock');
   assert.equal(resolveAnalysisMode('fallback'), 'fallback');
+});
+
+test('real analyze provider stats preserve partial provider failure', async () => {
+  const loaded = await loadAnalyzeItemsWithProviders('real', analyzeTestProviders({
+    hackerNews: async () => { throw new Error('fetch failed'); },
+    appStore: async () => [providerFixtureItem({ id: 'app-1', source: 'Apple App Store', type: 'app_store_signal' })],
+    github: async () => [providerFixtureItem({ id: 'github-1', source: 'GitHub', type: 'developer_signal' })],
+  }));
+
+  assert.equal(loaded.source, 'real');
+  assert.equal(loaded.providerStats.hackerNews.ok, false);
+  assert.equal(loaded.providerStats.hackerNews.returnedCount, 0);
+  assert.match(loaded.providerStats.hackerNews.error, /fetch failed/);
+  assert.equal(loaded.providerStats.appStore.ok, true);
+  assert.equal(loaded.providerStats.appStore.fetchedCount, 1);
+  assert.equal(loaded.providerStats.appStore.returnedCount, 1);
+  assert.equal(loaded.providerStats.github.ok, true);
+  assert.equal(loaded.providerStats.github.returnedCount, 1);
+  assert.equal(loaded.items.some((item) => item.source === 'Hacker News'), false);
+  assert.equal(loaded.items.some((item) => item.source === 'Apple App Store'), true);
+
+  const response = buildRuleAnalyzeResponse({ query: 'AI image tool for Japan subscription validation', profile: {}, source: 'real', loaded });
+  assert.deepEqual(response.providerStats, loaded.providerStats);
+});
+
+test('HN rejected records providerStats and does not inject Hacker News evidence', async () => {
+  const loaded = await loadAnalyzeItemsWithProviders('real', analyzeTestProviders({
+    hackerNews: async () => { throw new Error('fetch failed'); },
+    appStore: async () => [providerFixtureItem({ id: 'app-2', source: 'Apple App Store', type: 'app_store_signal' })],
+  }));
+  const canonical = canonicalFromLoaded(loaded);
+
+  assert.equal(loaded.providerStats.hackerNews.ok, false);
+  assert.equal(loaded.providerStats.hackerNews.returnedCount, 0);
+  assert.ok(loaded.providerStats.hackerNews.error);
+  assert.equal(canonical.evidence.some((item) => item.source === 'Hacker News'), false);
+});
+
+test('fulfilled provider error is reported as error, not skippedReason', async () => {
+  const loaded = await loadAnalyzeItemsWithProviders('real', analyzeTestProviders({
+    hackerNews: async () => ({ ok: false, error: 'rate limited' }),
+    appStore: async () => [providerFixtureItem({ id: 'app-error-1', source: 'Apple App Store', type: 'app_store_signal' })],
+  }));
+  const canonical = canonicalFromLoaded(loaded);
+
+  assert.equal(loaded.providerStats.hackerNews.ok, false);
+  assert.equal(loaded.providerStats.hackerNews.error, 'rate limited');
+  assert.equal('skippedReason' in loaded.providerStats.hackerNews, false);
+  assert.equal(canonical.evidence.some((item) => item.source === 'Hacker News'), false);
+});
+
+test('unconfigured provider is reported as skippedReason, not error', async () => {
+  const loaded = await loadAnalyzeItemsWithProviders('real', analyzeTestProviders({
+    appStore: async () => [providerFixtureItem({ id: 'app-skip-1', source: 'Apple App Store', type: 'app_store_signal' })],
+    productHunt: async () => ({ ok: false, skippedReason: 'token not configured' }),
+  }));
+
+  assert.equal(loaded.providerStats.productHunt.ok, false);
+  assert.equal(loaded.providerStats.productHunt.skippedReason, 'token not configured');
+  assert.equal('error' in loaded.providerStats.productHunt, false);
+});
+
+test('HN fulfilled records counts and preserves retrievedAt in canonical evidence', async () => {
+  const retrievedAt = '2026-06-13T08:30:00.000Z';
+  const loaded = await loadAnalyzeItemsWithProviders('real', analyzeTestProviders({
+    hackerNews: async () => [providerFixtureItem({ id: 'hn-1', source: 'Hacker News', retrievedAt })],
+  }));
+  const canonical = canonicalFromLoaded(loaded);
+  const hnEvidence = canonical.evidence.find((item) => item.source === 'Hacker News');
+
+  assert.equal(loaded.source, 'real');
+  assert.equal(loaded.providerStats.hackerNews.ok, true);
+  assert.equal(loaded.providerStats.hackerNews.fetchedCount, 1);
+  assert.equal(loaded.providerStats.hackerNews.returnedCount, 1);
+  assert.ok(hnEvidence);
+  assert.equal(hnEvidence.retrievedAt, retrievedAt);
+});
+
+test('all real providers empty falls back while preserving this request providerStats', async () => {
+  const loaded = await loadAnalyzeItemsWithProviders('real', analyzeTestProviders({
+    hackerNews: async () => [],
+    appStore: async () => [],
+    github: async () => [],
+    productHunt: async () => ({ ok: false, skippedReason: 'Product Hunt token not configured' }),
+    gdelt: async () => [],
+  }));
+
+  assert.equal(loaded.source, 'fallback');
+  assert.ok(loaded.items.length > 0);
+  assert.equal(loaded.providerStats.hackerNews.ok, true);
+  assert.equal(loaded.providerStats.hackerNews.returnedCount, 0);
+  assert.equal(loaded.providerStats.appStore.returnedCount, 0);
+  assert.equal(loaded.providerStats.github.returnedCount, 0);
+  assert.equal(loaded.providerStats.productHunt.ok, false);
+  assert.equal(loaded.providerStats.productHunt.returnedCount, 0);
+  assert.equal(Object.values(loaded.providerStats).every((stat) => stat.returnedCount === 0), true);
+});
+
+test('providerStats and retrievedAt do not change canonical owned judgment fields', async () => {
+  const retrievedAt = '2026-06-13T09:00:00.000Z';
+  const loaded = await loadAnalyzeItemsWithProviders('real', analyzeTestProviders({
+    hackerNews: async () => [providerFixtureItem({ id: 'hn-2', source: 'Hacker News', retrievedAt })],
+    appStore: async () => [providerFixtureItem({ id: 'app-3', source: 'Apple App Store', type: 'app_store_signal', retrievedAt })],
+  }));
+  const withoutStatsOrRetrievedAt = {
+    ...loaded,
+    providerStats: undefined,
+    items: loaded.items.map((item) => ({
+      ...item,
+      evidence: item.evidence.map(({ retrievedAt: _retrievedAt, ...evidence }) => evidence),
+    })),
+  };
+
+  const canonicalWithObservability = canonicalFromLoaded(loaded);
+  const canonicalWithoutObservability = canonicalFromLoaded(withoutStatsOrRetrievedAt);
+
+  assert.deepEqual(canonicalWithObservability.assumptions, canonicalWithoutObservability.assumptions);
+  assert.deepEqual(canonicalWithObservability.verdict, canonicalWithoutObservability.verdict);
+  assert.deepEqual(canonicalWithObservability.hypotheses, canonicalWithoutObservability.hypotheses);
+  assert.deepEqual(canonicalWithObservability.actionPlan, canonicalWithoutObservability.actionPlan);
+  assert.deepEqual(canonicalWithObservability.actionPlan.stopGate, canonicalWithoutObservability.actionPlan.stopGate);
 });
 
 test('real mode can reach validate verdict when evidence conditions are met', () => {

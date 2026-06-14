@@ -362,23 +362,106 @@ app.get('/api/opportunities', async (req, res) => {
 });
 
 function loadAnalyzeItems(source) {
-  if (source !== 'real') return Promise.resolve({ source: source === 'fallback' ? 'fallback' : 'mock', items: getMockOpportunities().map(enhanceWithMarketKnowledge) });
-  return Promise.allSettled([
-    getHackerNewsOpportunities(),
-    getAppStoreOpportunities(),
-    getGitHubOpportunities(),
-    getProductHuntOpportunities(),
-    getGdeltOpportunities(),
-  ]).then((results) => {
-    const items = results.flatMap((result) => {
-      if (result.status !== 'fulfilled') return [];
-      const value = result.value;
-      const rawItems = Array.isArray(value) ? value : value?.items;
-      return Array.isArray(rawItems) ? rawItems : [];
-    }).map(ensureEvidenceItem).filter(Boolean).map(enhanceWithMarketKnowledge).slice(0, 50);
-    if (items.length === 0) return { source: 'fallback', items: getMockOpportunities().map(enhanceWithMarketKnowledge) };
-    return { source: 'real', items };
-  }).catch(() => ({ source: 'fallback', items: getMockOpportunities().map(enhanceWithMarketKnowledge) }));
+  const providers = [
+    { key: 'hackerNews', source: 'Hacker News', load: getHackerNewsOpportunities },
+    { key: 'appStore', source: 'Apple App Store', load: getAppStoreOpportunities },
+    { key: 'github', source: 'GitHub', load: getGitHubOpportunities },
+    { key: 'productHunt', source: 'Product Hunt', load: getProductHuntOpportunities },
+    { key: 'gdelt', source: 'GDELT', load: getGdeltOpportunities },
+  ];
+  return loadAnalyzeItemsWithProviders(source, providers);
+}
+
+function createAnalyzeProviderStats(providers) {
+  return Object.fromEntries(providers.map((provider) => [
+    provider.key,
+    { ok: true, fetchedCount: 0, returnedCount: 0 },
+  ]));
+}
+
+function rawProviderItems(value) {
+  if (Array.isArray(value)) return { items: value };
+  if (value?.ok === false) {
+    return {
+      items: [],
+      error: value.error,
+      skippedReason: value.skippedReason || (value.error ? undefined : 'provider skipped'),
+    };
+  }
+  if (Array.isArray(value?.items)) return { items: value.items };
+  return { items: [] };
+}
+
+async function loadAnalyzeItemsWithProviders(source, providers) {
+  if (source !== 'real') {
+    return {
+      source: source === 'fallback' ? 'fallback' : 'mock',
+      items: getMockOpportunities().map(enhanceWithMarketKnowledge),
+      providerStats: undefined,
+    };
+  }
+
+  const providerStats = createAnalyzeProviderStats(providers);
+  const results = await Promise.allSettled(providers.map((provider) => Promise.resolve().then(() => provider.load())));
+  const itemsByProvider = new Map();
+
+  results.forEach((result, index) => {
+    const provider = providers[index];
+    if (result.status !== 'fulfilled') {
+      providerStats[provider.key] = {
+        ok: false,
+        fetchedCount: 0,
+        returnedCount: 0,
+        error: result.reason instanceof Error ? result.reason.message : 'fetch failed',
+      };
+      itemsByProvider.set(provider.key, []);
+      return;
+    }
+
+    const { items: rawItems, error, skippedReason } = rawProviderItems(result.value);
+    if (error) {
+      providerStats[provider.key] = {
+        ok: false,
+        fetchedCount: 0,
+        returnedCount: 0,
+        error,
+      };
+      itemsByProvider.set(provider.key, []);
+      return;
+    }
+
+    if (skippedReason) {
+      providerStats[provider.key] = {
+        ok: false,
+        fetchedCount: 0,
+        returnedCount: 0,
+        skippedReason,
+      };
+      itemsByProvider.set(provider.key, []);
+      return;
+    }
+
+    const validItems = rawItems.map(ensureEvidenceItem).filter(Boolean).map(enhanceWithMarketKnowledge);
+    providerStats[provider.key].fetchedCount = validItems.length;
+    itemsByProvider.set(provider.key, validItems);
+  });
+
+  const items = providers
+    .flatMap((provider) => itemsByProvider.get(provider.key) || [])
+    .slice(0, 50);
+
+  for (const provider of providers) {
+    providerStats[provider.key].returnedCount = items.filter((item) => item.source === provider.source).length;
+  }
+
+  if (items.length === 0) {
+    return {
+      source: 'fallback',
+      items: getMockOpportunities().map(enhanceWithMarketKnowledge),
+      providerStats,
+    };
+  }
+  return { source: 'real', items, providerStats };
 }
 
 function resolveAnalysisMode(loadedSource) {
@@ -503,7 +586,7 @@ function buildRuleAnalyzeResponse({ query, profile, source, loaded }) {
   const matchedSignals = eligible.slice(0, 3).map((entry) => ({ ...entry.item, relevanceScore: entry.relevance.finalRelevanceScore, relevanceLabel: entry.relevance.relevanceLabel }));
   const warnings = loaded.source !== 'real' ? ['当前为 mock/fallback 数据，仅用于结构演示，不代表真实市场结论。'] : [];
   return {
-    version: '2.1', analysisId: `analysis-${Date.now()}`, source: loaded.source, generatedAt: new Date().toISOString(),
+    version: '2.1', analysisId: `analysis-${Date.now()}`, source: loaded.source, generatedAt: new Date().toISOString(), providerStats: loaded.providerStats,
     steps: [
       { id: 'parse', label: '解析产品方向', status: 'done', summary: `识别为 ${intent.productCategory}，目标市场 ${intent.targetMarket}` },
       { id: 'signals', label: '检索市场信号', status: 'done', summary: `从 ${loaded.items.length} 条当前信号中检索相关线索` },
@@ -626,6 +709,7 @@ function normalizeJudgmentEvidence(response, sourceMode) {
       sourceType: normalizeEvidenceSourceType(primary, sourceMode),
       url: primary.url || null,
       strength: calculateEvidenceStrength(primary, sourceMode),
+      ...(primary.retrievedAt ? { retrievedAt: primary.retrievedAt } : {}),
       metadata: primary.metadata || {},
     });
   }
@@ -641,6 +725,7 @@ function normalizeJudgmentEvidence(response, sourceMode) {
       sourceType: normalizeEvidenceSourceType(item, sourceMode),
       url: item.url || null,
       strength: calculateEvidenceStrength(item, sourceMode),
+      ...(item.retrievedAt ? { retrievedAt: item.retrievedAt } : {}),
       metadata: item.metadata || {},
     });
   }
@@ -1611,6 +1696,8 @@ export {
   attachJudgmentSchema,
   buildJudgmentAssumptions,
   buildJudgmentVerdict,
+  buildRuleAnalyzeResponse,
+  loadAnalyzeItemsWithProviders,
   parseQueryIntent,
   resolveAnalysisMode,
   startServer,
