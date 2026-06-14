@@ -586,6 +586,7 @@ export function AnalyzePage() {
     if (query.trim()) return 1;
     return 0;
   }, [analyzing, inputQuality, protocol?.canJudge, query, viewResult]);
+  const radarSource = new URLSearchParams(window.location.search).has('source') ? source : 'real';
 
   return (
     <AppShell>
@@ -638,7 +639,7 @@ export function AnalyzePage() {
             <p>分析服务未连接。请稍后重试，或切换样本模式查看验证结构。</p>
             <div className={styles.actionsRow}>
               <button type="button" className={styles.primaryButton} onClick={runAnalyze}>重新分析</button>
-              <a className={styles.ghostButton} href={`/signals?source=${source}`}>查看市场信号</a>
+              <a className={styles.ghostButton} href={`/opportunities?tab=signals&source=${radarSource}`}>查看市场信号榜</a>
             </div>
           </section>
         ) : null}

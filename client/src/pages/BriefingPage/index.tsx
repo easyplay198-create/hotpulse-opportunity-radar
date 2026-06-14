@@ -22,9 +22,9 @@ const SECTIONS: Array<{ key: SectionKey; title: string }> = [
 ];
 
 function sourceStatus(sourceParam: string | null): DailyBriefSourceStatus {
-  if (sourceParam === 'real') return 'real';
+  if (sourceParam === 'mock') return 'mock';
   if (sourceParam === 'fallback') return 'fallback';
-  return 'mock';
+  return 'real';
 }
 
 function shortText(text: string, max: number) {
@@ -32,7 +32,7 @@ function shortText(text: string, max: number) {
 }
 
 function BriefItemCard({ item, dataSource }: { item: DailyIntelligenceBriefItem; dataSource: DailyBriefSourceStatus }) {
-  const reportHref = item.id.includes('worth') ? `/opportunities?source=${dataSource}` : `/signals?source=${dataSource}`;
+  const reportHref = item.id.includes('worth') ? `/opportunities?source=${dataSource}` : `/opportunities?tab=signals&source=${dataSource}`;
   return (
     <article style={{ display: 'grid', gap: 12, padding: 18, borderRadius: 20, background: '#fff', border: '1px solid #dbe6f6', boxShadow: '0 10px 22px rgba(15,23,42,.04)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
@@ -43,7 +43,7 @@ function BriefItemCard({ item, dataSource }: { item: DailyIntelligenceBriefItem;
       <p style={{ margin: 0, color: '#5a6678', lineHeight: 1.55 }}>{shortText(item.opportunityInsight, 60)}</p>
       <p style={{ margin: 0, color: '#5a6678' }}><strong>适合：</strong>{shortText(item.suitableFor, 30)}</p>
       <p style={{ margin: 0, color: '#5a6678' }}><strong>验证：</strong>{shortText(item.validationDirection, 50)}</p>
-      <a href={reportHref} style={{ width: 'fit-content', borderRadius: 999, padding: '10px 14px', background: '#244b86', color: '#fff', fontWeight: 800, textDecoration: 'none' }}>{item.id.includes('worth') ? '查看机会库' : '查看报告'}</a>
+      <a href={reportHref} style={{ width: 'fit-content', borderRadius: 999, padding: '10px 14px', background: '#244b86', color: '#fff', fontWeight: 800, textDecoration: 'none' }}>{item.id.includes('worth') ? '查看机会雷达' : '查看市场信号榜'}</a>
     </article>
   );
 }
@@ -63,9 +63,9 @@ export function BriefingPage() {
         return;
       }
       try {
-        const data = await getHotspotListFromApi(sourceParam === 'real' ? 'real' : undefined);
+        const data = await getHotspotListFromApi(sourceParam === 'mock' ? undefined : 'real');
         setItems(data.items);
-        setDataSource(sourceParam === 'real' ? 'real' : 'mock');
+        setDataSource(sourceParam === 'mock' ? 'mock' : 'real');
       } catch {
         const fallback = await getHotspotList();
         setItems(fallback.items);

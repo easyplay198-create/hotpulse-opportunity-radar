@@ -1,7 +1,9 @@
 import type { RejectedSignal } from '../../types/analyze';
 
 export function NoMatchState({ evidenceGaps, rejectedSignals, nextStep }: { evidenceGaps?: string[]; rejectedSignals?: RejectedSignal[]; nextStep?: string }) {
-  const gaps = evidenceGaps && evidenceGaps.length > 0 ? evidenceGaps : ['当前证据不足，建议先补充目标市场、产品形态和变现方式，再做小样本验证。'];
+  const gaps = evidenceGaps && evidenceGaps.length > 0
+    ? evidenceGaps
+    : ['当前证据不足，建议先补充目标市场、产品形态和变现方式，再做小样本验证。'];
   const rejected = (rejectedSignals ?? []).slice(0, 3);
 
   return (
@@ -28,7 +30,7 @@ export function NoMatchState({ evidenceGaps, rejectedSignals, nextStep }: { evid
       <p style={{ margin: 0, color: '#9a3412', lineHeight: 1.7 }}><strong>下一步：</strong>{nextStep || '先明确目标市场、产品形态和变现方式，再用 landing page、访谈和小预算测试验证需求。'}</p>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <button type="button" style={{ border: 'none', borderRadius: 999, padding: '10px 14px', background: '#244b86', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>继续补充条件</button>
-        <a href="/signals?source=mock" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 999, padding: '10px 14px', background: '#eef4fb', color: '#244b86', fontWeight: 800, textDecoration: 'none' }}>查看市场信号</a>
+        <a href="/opportunities?tab=signals&source=real" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 999, padding: '10px 14px', background: '#eef4fb', color: '#244b86', fontWeight: 800, textDecoration: 'none' }}>查看市场信号榜</a>
       </div>
     </section>
   );

@@ -28,7 +28,8 @@ export function EvidenceBoard({ items, source }: { items?: EvidenceBoardItem[]; 
               return;
             }
             if (item.sourceItemId && !isMock && !isKnowledge && !isUserInput) {
-              window.location.href = `/signals?source=${source}`;
+              const radarSource = new URLSearchParams(window.location.search).has('source') ? source : 'real';
+              window.location.href = `/opportunities?tab=signals&source=${radarSource}`;
             }
           };
 

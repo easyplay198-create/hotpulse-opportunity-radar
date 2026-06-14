@@ -272,13 +272,13 @@ export function HomePage() {
   const reportId = searchParams.get('report');
   const isLoadingPreview = previewMode === 'loading';
   const isErrorPreview = previewMode === 'error';
-  const apiSource = sourceParam === 'real' ? 'real' : undefined;
-  const linkSource = sourceParam === 'real' ? 'real' : 'mock';
+  const apiSource = sourceParam === 'mock' ? undefined : 'real';
+  const linkSource = sourceParam === 'mock' || sourceParam === 'fallback' ? sourceParam : 'real';
   const withSource = (path: string) => (path.includes('?') ? `${path}&source=${linkSource}` : `${path}?source=${linkSource}`);
   const [items, setItems] = useState<HotItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
-  const [dataSource, setDataSource] = useState<DataSource>(apiSource === 'real' ? 'connecting' : 'mock');
+  const [dataSource, setDataSource] = useState<DataSource>(sourceParam === 'fallback' ? 'fallback' : apiSource === 'real' ? 'connecting' : 'mock');
   const [providerStats, setProviderStats] = useState<ProviderStats | undefined>(undefined);
 
   const summary = useMemo(() => buildHotspotSummary(items), [items]);
@@ -293,6 +293,13 @@ export function HomePage() {
     if (isLoadingPreview || isErrorPreview) return;
     const loadData = async () => {
       try {
+        if (sourceParam === 'fallback') {
+          const fallbackData = await getHotspotList();
+          setItems(fallbackData.items);
+          setProviderStats(undefined);
+          setDataSource('fallback');
+          return;
+        }
         const data = await getHotspotListFromApi(apiSource);
         setItems(data.items);
         setProviderStats(data.providerStats);
@@ -311,7 +318,7 @@ export function HomePage() {
       }
     };
     loadData();
-  }, [apiSource, isErrorPreview, isLoadingPreview]);
+  }, [apiSource, isErrorPreview, isLoadingPreview, sourceParam]);
 
   if (reportId) {
     return (
@@ -435,9 +442,9 @@ export function HomePage() {
               <article className={styles.pathRow}>
                 <div className={styles.pathMain}>
                   <div className={styles.pathStep}>Step 01</div>
-                  <h3 className={styles.pathTitle}>机会雷达 / 今日简报</h3>
+                  <h3 className={styles.pathTitle}>机会雷达 / 市场信号榜</h3>
                   <p className={styles.pathDesc}>每天沉淀市场信号和可验证方向，帮你发现值得进一步判断的机会。</p>
-                  <a className={styles.pathAction} href={withSource('/briefing')}>查看今日简报</a>
+                  <a className={styles.pathAction} href={withSource('/opportunities')}>查看机会雷达</a>
                 </div>
                 <div className={styles.pathSupport}>
                   <div className={styles.supportHeader}>
@@ -556,8 +563,8 @@ export function HomePage() {
           <nav className={styles.footerNav} aria-label="页脚导航">
             <a href={withSource('/')}>首页</a>
             <a href={withSource('/analyze')}>验证工具</a>
-            <a href={withSource('/opportunities')}>机会库</a>
-            <a href={withSource('/briefing')}>今日简报</a>
+            <a href={withSource('/opportunities')}>机会雷达</a>
+            <a href={withSource('/opportunities?tab=signals')}>市场信号榜</a>
             <a href={withSource('/resources')}>执行支持</a>
           </nav>
           <div className={styles.footerMeta}>HotPulse · Market MVP Validation OS</div>

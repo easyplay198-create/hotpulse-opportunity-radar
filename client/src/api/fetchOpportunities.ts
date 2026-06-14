@@ -19,6 +19,7 @@ export interface OpportunitiesResponse {
     appStore?: ProviderStatItem;
     github?: ProviderStatItem;
     productHunt?: ProviderStatItem;
+    gdelt?: ProviderStatItem;
   };
 }
 
