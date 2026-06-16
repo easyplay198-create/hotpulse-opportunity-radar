@@ -166,7 +166,7 @@ export function HotList({ platforms, items }: HotListProps) {
                     <li key={`${item.id}-${ev.url}`}>
                       <span>{ev.source}</span>
                       <span>{ev.evidenceStrength}</span>
-                      <a href={ev.url} target="_blank" rel="noreferrer">查看原始来源</a>
+                      {ev.url ? <a href={ev.url} target="_blank" rel="noreferrer">查看原始来源</a> : null}
                     </li>
                   ))}
                 </ul>

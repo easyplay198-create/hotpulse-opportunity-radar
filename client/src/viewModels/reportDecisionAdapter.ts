@@ -9,7 +9,7 @@ function buildEvidenceTimeline(item: HotItem) {
     title: safeText(evidence.title, '证据'),
     fact: safeText(evidence.title, '证据摘要'),
     strength: evidence.evidenceStrength ?? 'unknown',
-    url: evidence.url,
+    url: evidence.url ?? undefined,
     time: evidence.retrievedAt,
     type: evidence.type,
     isDerived: true,

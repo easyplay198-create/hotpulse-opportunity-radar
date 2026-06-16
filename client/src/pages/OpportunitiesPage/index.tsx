@@ -43,8 +43,19 @@ interface FilterState {
   sort: SortKey;
 }
 
+interface OpportunitiesCacheEntry {
+  source: DataSource;
+  opportunities: HotItem[];
+  providerStats?: ProviderStats;
+  generatedAt?: string;
+  retrievedAt: string;
+}
+
+type OpportunitiesCacheStore = Partial<Record<DataSource, OpportunitiesCacheEntry>>;
+
 const ALL = 'all';
 const UNKNOWN_MARKET = '市场待确认';
+const OPPORTUNITIES_CACHE_KEY = 'hotpulse.opportunitiesCache.v1';
 
 function sourceFromSearch(): DataSource {
   const source = new URLSearchParams(window.location.search).get('source');
@@ -57,6 +68,47 @@ function initialTab(): RadarTab {
   const params = new URLSearchParams(window.location.search);
   if (window.location.pathname === '/signals') return 'signals';
   return params.get('tab') === 'signals' ? 'signals' : 'opportunities';
+}
+
+function isHotItemArray(value: unknown): value is HotItem[] {
+  return Array.isArray(value) && value.every((item) => (
+    item
+    && typeof item === 'object'
+    && typeof (item as HotItem).id === 'string'
+    && typeof (item as HotItem).title === 'string'
+  ));
+}
+
+function readOpportunitiesCache(source: DataSource): OpportunitiesCacheEntry | null {
+  try {
+    const raw = window.sessionStorage.getItem(OPPORTUNITIES_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as OpportunitiesCacheStore;
+    const cached = parsed?.[source];
+    if (
+      cached?.source === source
+      && isHotItemArray(cached.opportunities)
+      && typeof cached.retrievedAt === 'string'
+    ) {
+      return cached;
+    }
+  } catch {
+    window.sessionStorage.removeItem(OPPORTUNITIES_CACHE_KEY);
+  }
+  return null;
+}
+
+function writeOpportunitiesCache(entry: OpportunitiesCacheEntry) {
+  try {
+    const raw = window.sessionStorage.getItem(OPPORTUNITIES_CACHE_KEY);
+    const current = raw ? JSON.parse(raw) as OpportunitiesCacheStore : {};
+    window.sessionStorage.setItem(OPPORTUNITIES_CACHE_KEY, JSON.stringify({
+      ...(current && typeof current === 'object' ? current : {}),
+      [entry.source]: entry,
+    }));
+  } catch {
+    window.sessionStorage.removeItem(OPPORTUNITIES_CACHE_KEY);
+  }
 }
 
 function dataSourceLabel(source: DataSource) {
@@ -127,13 +179,19 @@ function compactText(value: string | undefined, fallback: string, limit = 58) {
   return text.length > limit ? `${text.slice(0, limit)}...` : text;
 }
 
-function safeExternalUrl(value?: string) {
+function isInternalKnowledgeEvidence(evidence: EvidenceItem) {
+  return evidence.source === 'HotPulse Market Knowledge'
+    || evidence.metadata?.knowledgeType === 'static_market_entry';
+}
+
+function safeExternalUrl(value?: string | null) {
   const raw = value?.trim();
   if (!raw) return null;
 
   try {
     const url = new URL(raw);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    if (url.hostname === 'example.com' || url.hostname.endsWith('.example.com')) return null;
     return url.toString();
   } catch {
     return null;
@@ -293,12 +351,15 @@ function buildAnalyzeHref(opportunity?: RadarOpportunity, source: DataSource = '
 }
 
 export function OpportunitiesPage() {
-  const [items, setItems] = useState<HotItem[]>([]);
-  const [providerStats, setProviderStats] = useState<ProviderStats | undefined>();
-  const [generatedAt, setGeneratedAt] = useState<string | undefined>();
-  const [dataSource, setDataSource] = useState<DataSource>(() => sourceFromSearch());
+  const initialSource = sourceFromSearch();
+  const initialCache = readOpportunitiesCache(initialSource);
+  const [items, setItems] = useState<HotItem[]>(() => initialCache?.opportunities ?? []);
+  const [providerStats, setProviderStats] = useState<ProviderStats | undefined>(() => initialCache?.providerStats);
+  const [generatedAt, setGeneratedAt] = useState<string | undefined>(() => initialCache?.generatedAt ?? initialCache?.retrievedAt);
+  const [dataSource, setDataSource] = useState<DataSource>(() => initialSource);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cacheNotice, setCacheNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<RadarTab>(() => initialTab());
   const [signalPreset, setSignalPreset] = useState<SignalPreset>('composite');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -313,12 +374,33 @@ export function OpportunitiesPage() {
 
   useEffect(() => {
     const requestedSource = sourceFromSearch();
+    let cancelled = false;
     const load = async () => {
+      const cached = readOpportunitiesCache(requestedSource);
+      if (cached) {
+        setItems(cached.opportunities);
+        setProviderStats(cached.providerStats);
+        setGeneratedAt(cached.generatedAt ?? cached.retrievedAt);
+        setDataSource(cached.source);
+      } else {
+        setItems([]);
+        setProviderStats(undefined);
+        setGeneratedAt(undefined);
+        setDataSource(requestedSource);
+      }
+
       setLoading(true);
       setError(null);
+      setCacheNotice(null);
       try {
         if (requestedSource === 'fallback') {
           const seed = await getHotspotList();
+          if (cancelled) return;
+          writeOpportunitiesCache({
+            source: 'fallback',
+            opportunities: seed.items,
+            retrievedAt: new Date().toISOString(),
+          });
           setItems(seed.items);
           setProviderStats(undefined);
           setGeneratedAt(undefined);
@@ -328,23 +410,47 @@ export function OpportunitiesPage() {
 
         const raw = await fetchOpportunities(requestedSource === 'real' ? 'real' : undefined);
         const data = buildHotspotListFromItems(raw.items);
+        if (cancelled) return;
+        const nextSource = requestedSource === 'real' ? 'real' : 'mock';
+        const retrievedAt = raw.generatedAt ?? new Date().toISOString();
+        writeOpportunitiesCache({
+          source: nextSource,
+          opportunities: data.items,
+          providerStats: raw.providerStats,
+          generatedAt: raw.generatedAt,
+          retrievedAt,
+        });
         setItems(data.items);
         setProviderStats(raw.providerStats);
         setGeneratedAt(raw.generatedAt);
-        setDataSource(requestedSource === 'real' ? 'real' : 'mock');
+        setDataSource(nextSource);
       } catch (loadError) {
+        if (cancelled) return;
+        if (cached) {
+          setItems(cached.opportunities);
+          setProviderStats(cached.providerStats);
+          setGeneratedAt(cached.generatedAt ?? cached.retrievedAt);
+          setDataSource(cached.source);
+          setCacheNotice('实时更新暂时失败，当前显示上次成功结果。');
+          return;
+        }
+
         const seed = await getHotspotList();
+        if (cancelled) return;
         setItems(seed.items);
         setProviderStats(undefined);
         setGeneratedAt(undefined);
         setDataSource('fallback');
         setError(loadError instanceof Error ? loadError.message : '机会数据加载失败');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     void load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const opportunities = useMemo(() => items.map(buildRadarOpportunity), [items]);
@@ -361,6 +467,8 @@ export function OpportunitiesPage() {
 
   const totalKnownSources = sourceOptions.length;
   const healthyProviders = providerEntries(providerStats).filter(([, stat]) => stat.ok).length;
+  const isInitialLoading = loading && items.length === 0;
+  const refreshNotice = loading && items.length > 0 ? '正在更新最新信号……' : null;
 
   const updateFilter = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
     setFilter((current) => ({ ...current, [key]: value }));
@@ -388,8 +496,10 @@ export function OpportunitiesPage() {
           <aside className={styles.statusPanel} aria-label="数据源状态摘要">
             <div className={styles.statusTopline}>
               <span>{dataSourceLabel(dataSource)}</span>
-              <strong>{loading ? '加载中' : `${items.length} 条信号`}</strong>
+              <strong>{isInitialLoading ? '加载中' : `${items.length} 条信号`}</strong>
             </div>
+            {refreshNotice ? <p className={styles.refreshNotice}>{refreshNotice}</p> : null}
+            {cacheNotice ? <p className={styles.cacheNotice}>{cacheNotice}</p> : null}
             <div className={styles.statusGrid}>
               <span><strong>{formatTime(latestTime)}</strong><small>最近采集时间</small></span>
               <span><strong>{totalKnownSources || '待确认'}</strong><small>可见来源</small></span>
@@ -479,7 +589,7 @@ export function OpportunitiesPage() {
 
             <OpportunityGrid
               items={filtered}
-              loading={loading}
+              loading={isInitialLoading}
               emptyTitle="没有匹配的机会"
               emptyCopy="当前筛选组合没有结果，可以清除筛选或切换到市场信号榜查看同一批数据。"
               dataSource={dataSource}
@@ -515,7 +625,7 @@ export function OpportunitiesPage() {
             </div>
             <OpportunityGrid
               items={signalItems}
-              loading={loading}
+              loading={isInitialLoading}
               emptyTitle="当前榜单暂无结果"
               emptyCopy="该榜单只展示有真实字段支撑的排序结果，不使用随机数或静态趋势值。"
               dataSource={dataSource}
@@ -637,12 +747,17 @@ function OpportunityDrawer({
             <div className={styles.evidenceList}>
               {opportunity.evidence.map((evidence) => {
                 const safeUrl = safeExternalUrl(evidence.url);
+                const isInternalKnowledge = isInternalKnowledgeEvidence(evidence);
                 return (
                   <article key={`${opportunity.id}-${evidence.source}-${evidence.url || evidence.title}`}>
                     <span>{evidence.source} · {strengthLabel(evidence.evidenceStrength)}</span>
                     <strong>{evidence.title}</strong>
                     <small>{formatTime(evidence.retrievedAt)}</small>
-                    {safeUrl ? <a href={safeUrl} target="_blank" rel="noreferrer">打开原始来源</a> : <small>该条证据暂无可打开的原始来源</small>}
+                    {safeUrl ? <a href={safeUrl} target="_blank" rel="noreferrer">打开原始来源</a> : null}
+                    {isInternalKnowledge ? (
+                      <small>HotPulse 内部知识库 · 用于辅助市场进入判断 · 无外部原始链接</small>
+                    ) : null}
+                    {!safeUrl && !isInternalKnowledge ? <small>该条证据暂无可打开的原始来源</small> : null}
                   </article>
                 );
               })}

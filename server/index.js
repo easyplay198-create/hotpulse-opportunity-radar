@@ -57,6 +57,11 @@ function isValidHttpUrl(value) {
   return typeof value === 'string' && /^https?:\/\//i.test(value);
 }
 
+function isInternalMarketKnowledgeEvidence(ev) {
+  return ev?.source === 'HotPulse Market Knowledge'
+    || ev?.metadata?.knowledgeType === 'static_market_entry';
+}
+
 function normalizeEvidenceArray(evidence) {
   if (!Array.isArray(evidence)) return [];
 
@@ -79,14 +84,14 @@ function normalizeEvidenceArray(evidence) {
   return evidence
     .filter((ev) => ev
       && typeof ev.title === 'string'
-      && isValidHttpUrl(ev.url)
+      && (isValidHttpUrl(ev.url) || isInternalMarketKnowledgeEvidence(ev))
       && typeof ev.source === 'string'
       && allowedTypes.has(ev.type)
       && typeof ev.retrievedAt === 'string'
       && allowedStrength.has(ev.evidenceStrength))
     .map((ev) => ({
       title: ev.title,
-      url: ev.url,
+      url: isValidHttpUrl(ev.url) ? ev.url : null,
       source: ev.source,
       type: ev.type,
       retrievedAt: ev.retrievedAt,

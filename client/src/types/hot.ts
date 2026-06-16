@@ -26,7 +26,7 @@ export type EvidenceType =
 
 export interface EvidenceItem {
   title: string;
-  url: string;
+  url?: string | null;
   source: string;
   type: EvidenceType;
   evidenceStrength: EvidenceStrength;

@@ -251,7 +251,7 @@ export function evidenceFromBoardItem(item: EvidenceBoardItem, index: number): S
     title: safeText(item.title, '证据'),
     fact: safeText(item.supports || item.note, '证据摘要'),
     strength: item.evidenceStrength ?? 'unknown',
-    url: item.url,
+    url: item.url ?? undefined,
     type: item.sourceType,
     isDerived: false,
   };
@@ -265,7 +265,7 @@ export function evidenceFromHotItem(item: HotItem, index: number): StandardEvide
     fact: safeText(item.summary, '证据摘要'),
     strength: item.evidence?.[index]?.evidenceStrength ?? 'unknown',
     time: item.evidence?.[index]?.retrievedAt ?? item.publishedAt,
-    url: item.evidence?.[index]?.url,
+    url: item.evidence?.[index]?.url ?? undefined,
     type: item.evidence?.[index]?.type,
     isDerived: true,
   };

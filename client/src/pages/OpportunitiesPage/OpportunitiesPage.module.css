@@ -127,6 +127,26 @@
   line-height: 1.5;
 }
 
+.refreshNotice,
+.cacheNotice {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.refreshNotice {
+  background: rgba(59, 130, 246, 0.16);
+  color: #dbeafe;
+}
+
+.cacheNotice {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fde68a;
+}
+
 .providerList {
   display: flex;
   flex-wrap: wrap;

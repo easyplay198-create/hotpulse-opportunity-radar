@@ -68,7 +68,7 @@ function buildEvidenceChain(evidence: EvidenceItem[]) {
     title: item.title,
     type: item.type,
     strength: item.evidenceStrength,
-    url: item.url,
+    url: item.url ?? undefined,
   }));
 }
 
