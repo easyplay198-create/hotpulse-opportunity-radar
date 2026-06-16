@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode, type Ref } from 'react';
 import type { MarketMvpResearchProtocol } from '../../lib/marketMvpResearchProtocol';
 import type { AnalyzeResponse } from '../../types/analyze';
 import styles from '../../pages/AnalyzePage/AnalyzePage.module.css';
@@ -18,6 +18,8 @@ type Props = {
   source: SourceMode;
   result: AnalyzeResponse | null;
   missingCriticalCount: number;
+  reportSaveSlot?: ReactNode;
+  verdictRef?: Ref<HTMLElement>;
 };
 
 type EvidenceStatus = MarketMvpResearchProtocol['evidenceCoverage'][number]['status'];
@@ -815,11 +817,11 @@ function exampleList() {
   ];
 }
 
-export function MarketMvpResearchProtocolPanel({ protocol, source, result, missingCriticalCount }: Props) {
+export function MarketMvpResearchProtocolPanel({ protocol, source, result, missingCriticalCount, reportSaveSlot, verdictRef }: Props) {
   const [activeActionPanel, setActiveActionPanel] = useState<string | null>(null);
   const [activeAdvisorPanel, setActiveAdvisorPanel] = useState<string | null>(null);
 
-  if (!protocol.canJudge) {
+  if (!protocol.canJudge && !result) {
     const missingInputs = protocol.missingInputs.length > 0 ? protocol.missingInputs : FALLBACK_INPUTS;
 
     return (
@@ -891,6 +893,50 @@ export function MarketMvpResearchProtocolPanel({ protocol, source, result, missi
 
   return (
     <section className={styles.consoleShell} aria-label="Market MVP 验证结果">
+      <section
+        id="analyze-verdict"
+        ref={verdictRef}
+        className={`${styles.decisionContractBar} ${decisionToneClass(decision.tone)}`}
+        data-analyze-verdict="true"
+        tabIndex={-1}
+      >
+        <div className={styles.decisionVerdict}>
+          <span className={styles.panelEyebrow}>Verdict</span>
+          <h2>{decision.verdict}</h2>
+          <p>{decision.reason}</p>
+        </div>
+        <div className={styles.decisionSide}>
+          <div className={styles.decisionContractGrid}>
+            <article>
+              <span>Preview Score</span>
+              <strong>{decision.score}</strong>
+              <small>仅作参考</small>
+            </article>
+            <article>
+              <span>Confidence</span>
+              <strong>{decision.confidence}</strong>
+              <small>由证据覆盖与来源决定</small>
+            </article>
+            <article>
+              <span>Evidence</span>
+              <strong>{decision.evidenceCoverage}/{decision.totalEvidence}</strong>
+              <small>已验证维度</small>
+            </article>
+            <article>
+              <span>Main Risk</span>
+              <strong>{shortText(decision.mainRisk, 18)}</strong>
+              <small>优先处理</small>
+            </article>
+            <article>
+              <span>Next Move</span>
+              <strong>{shortText(decision.nextMove, 18)}</strong>
+              <small>下一步动作</small>
+            </article>
+          </div>
+          {reportSaveSlot}
+        </div>
+      </section>
+
       <div className={styles.sourceModeNotice}>
         <strong>{notice.title}</strong>
         <p>{notice.body}</p>
@@ -901,65 +947,6 @@ export function MarketMvpResearchProtocolPanel({ protocol, source, result, missi
           <strong>AI Draft</strong>
           <p>{draftNotice}</p>
         </div>
-      ) : null}
-
-      <section className={`${styles.decisionContractBar} ${decisionToneClass(decision.tone)}`}>
-        <div className={styles.decisionVerdict}>
-          <span className={styles.panelEyebrow}>Verdict</span>
-          <h2>{decision.verdict}</h2>
-          <p>{decision.reason}</p>
-        </div>
-        <div className={styles.decisionContractGrid}>
-          <article>
-            <span>Preview Score</span>
-            <strong>{decision.score}</strong>
-            <small>仅作参考</small>
-          </article>
-          <article>
-            <span>Confidence</span>
-            <strong>{decision.confidence}</strong>
-            <small>由证据覆盖与来源决定</small>
-          </article>
-          <article>
-            <span>Evidence</span>
-            <strong>{decision.evidenceCoverage}/{decision.totalEvidence}</strong>
-            <small>已验证维度</small>
-          </article>
-          <article>
-            <span>Main Risk</span>
-            <strong>{shortText(decision.mainRisk, 18)}</strong>
-            <small>优先处理</small>
-          </article>
-          <article>
-            <span>Next Move</span>
-            <strong>{shortText(decision.nextMove, 18)}</strong>
-            <small>下一步动作</small>
-          </article>
-        </div>
-      </section>
-
-      {knowledgeCards.length > 0 ? (
-        <section className={styles.protocolBlock}>
-          <div className={styles.protocolBlockHeader}>
-            <div>
-              <span className={styles.panelEyebrow}>First-Party Knowledge</span>
-              <h3>出海关键约束</h3>
-            </div>
-            <small>这里只展示免费页预览；完整拆解适合放入 Report 页。</small>
-          </div>
-          <div className={styles.firstPartyConstraintGrid}>
-            {knowledgeCards.map((item) => (
-              <article key={item.key} className={styles.firstPartyConstraintCard}>
-                <div className={styles.firstPartyConstraintTop}>
-                  <strong>{item.label}</strong>
-                  <span className={firstPartyLevelClass(item.level)}>{firstPartyLevelLabel(item.level)}</span>
-                </div>
-                <p>{shortText(item.summary, 72)}</p>
-                <small className={styles.firstPartyProvenance}>{firstPartyProvenanceLabel(item.provenance)}</small>
-              </article>
-            ))}
-          </div>
-        </section>
       ) : null}
 
       <section className={styles.protocolBlock}>
@@ -986,6 +973,30 @@ export function MarketMvpResearchProtocolPanel({ protocol, source, result, missi
           ))}
         </div>
       </section>
+
+      {knowledgeCards.length > 0 ? (
+        <section className={styles.protocolBlock}>
+          <div className={styles.protocolBlockHeader}>
+            <div>
+              <span className={styles.panelEyebrow}>First-Party Knowledge</span>
+              <h3>出海关键约束</h3>
+            </div>
+            <small>这里只展示免费页预览；完整拆解适合放入 Report 页。</small>
+          </div>
+          <div className={styles.firstPartyConstraintGrid}>
+            {knowledgeCards.map((item) => (
+              <article key={item.key} className={styles.firstPartyConstraintCard}>
+                <div className={styles.firstPartyConstraintTop}>
+                  <strong>{item.label}</strong>
+                  <span className={firstPartyLevelClass(item.level)}>{firstPartyLevelLabel(item.level)}</span>
+                </div>
+                <p>{shortText(item.summary, 72)}</p>
+                <small className={styles.firstPartyProvenance}>{firstPartyProvenanceLabel(item.provenance)}</small>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className={styles.protocolBlock}>
         <div className={styles.protocolBlockHeader}>

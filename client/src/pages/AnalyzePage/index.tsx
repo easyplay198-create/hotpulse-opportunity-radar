@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { analyzeOpportunity } from '../../api/analyzeOpportunity';
 import { AppShell } from '../../components/layout/AppShell';
 import { TopNav } from '../../components/layout/TopNav';
@@ -10,7 +10,10 @@ import { MarketMvpResearchProtocolPanel } from '../../components/analyze/MarketM
 import { sourceModeHint, sourceModeLabel, sourceModeTitle } from '../../components/analyze/analyzePresentation';
 import type { AnalyzeProfile, AnalyzeResponse } from '../../types/analyze';
 import { buildMarketMvpResearchProtocol, type MarketMvpResearchProtocol } from '../../lib/marketMvpResearchProtocol';
+import { buildReportInputFromProfile, saveReport } from '../../lib/reportStorage';
 import styles from './AnalyzePage.module.css';
+
+type AnalyzeSource = 'real' | 'mock' | 'fallback';
 
 const ANALYZE_QUERY_KEY = 'hotpulse_analyze_query';
 const DEFAULT_PROFILE: AnalyzeProfile = {
@@ -36,6 +39,11 @@ type AssumptionItem = {
 type BackendJudgment = {
   assumptions?: Record<string, unknown>;
   missingInfo?: Array<string | { key?: string; label?: string }>;
+};
+
+type CompletedAnalysisInput = {
+  query: string;
+  profile: AnalyzeProfile;
 };
 
 type AnalyzeResponseWithJudgment = AnalyzeResponse & {
@@ -273,7 +281,7 @@ function sourceModeCopy(source: 'real' | 'mock' | 'fallback', hasError: boolean)
   };
 }
 
-function getSource(): 'real' | 'mock' | 'fallback' {
+function getSource(): AnalyzeSource {
   const source = new URLSearchParams(window.location.search).get('source');
   if (source === 'real' || source === 'fallback') return source;
   return 'mock';
@@ -405,6 +413,66 @@ function ValidationStepper({ activeIndex }: { activeIndex: number }) {
   );
 }
 
+function SaveReportPanel({
+  result,
+  completedAnalysisInput,
+  savedReportId,
+  onSaved,
+}: {
+  result: AnalyzeResponse | null;
+  completedAnalysisInput: CompletedAnalysisInput | null;
+  savedReportId: string | null;
+  onSaved: (id: string) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!result || !completedAnalysisInput) return null;
+
+  const handleSave = () => {
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    const reportInput = buildReportInputFromProfile(
+      completedAnalysisInput.query,
+      completedAnalysisInput.profile,
+      result,
+    );
+    const saved = saveReport({
+      existingId: savedReportId,
+      projectDescription: reportInput.projectDescription,
+      targetMarket: reportInput.targetMarket,
+      productType: reportInput.productType,
+      result,
+    });
+    setSaving(false);
+    if (!saved.ok || !saved.report) {
+      setError(saved.error ?? '报告保存失败，请稍后重试。');
+      return;
+    }
+    onSaved(saved.report.id);
+    setMessage('已保存到当前浏览器');
+  };
+
+  return (
+    <section className={styles.saveReportPanel} aria-label="保存验证报告">
+      <div>
+        <span className={styles.panelEyebrow}>Saved Report</span>
+        <h3>{message ?? '保存到我的报告'}</h3>
+        <p>报告仅保存在当前浏览器，可随时在“我的报告”中查看。</p>
+        {error ? <small className={styles.saveReportError}>{error}</small> : null}
+      </div>
+      <div className={styles.saveReportActions}>
+        <button type="button" className={styles.primaryButton} onClick={handleSave} disabled={saving}>
+          {message ? '已保存到当前浏览器' : saving ? '保存中...' : '保存到我的报告'}
+        </button>
+        {savedReportId ? <a className={styles.ghostButton} href="/report">查看我的报告</a> : null}
+      </div>
+    </section>
+  );
+}
+
 function AssumptionExtractor({
   assumptions,
   missingCritical,
@@ -476,15 +544,71 @@ function AssumptionExtractor({
 export function AnalyzePage() {
   const searchParams = new URLSearchParams(window.location.search);
   const queryFromUrl = searchParams.get('q') ?? '';
-  const [source, setSource] = useState<'real' | 'mock' | 'fallback'>(() => getSource());
+  const targetMarketFromUrl = searchParams.get('targetMarket') ?? '';
+  const productTypeFromUrl = searchParams.get('productType') ?? '';
+  const opportunityIdFromUrl = searchParams.get('opportunityId') ?? '';
+  const autoRunFromUrl = searchParams.get('auto') === '1';
+  const autoRunKey = autoRunFromUrl && queryFromUrl.trim()
+    ? `${opportunityIdFromUrl || 'opportunity'}:${productTypeFromUrl}:${queryFromUrl.trim()}`
+    : null;
+  const [source, setSource] = useState<AnalyzeSource>(() => getSource());
   const [query, setQuery] = useState(() => queryFromUrl || window.sessionStorage.getItem(ANALYZE_QUERY_KEY) || '');
-  const [profile, setProfile] = useState<AnalyzeProfile>(DEFAULT_PROFILE);
+  const [profile, setProfile] = useState<AnalyzeProfile>(() => ({
+    ...DEFAULT_PROFILE,
+    targetMarket: targetMarketFromUrl || DEFAULT_PROFILE.targetMarket,
+  }));
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [inputQuality, setInputQuality] = useState<{ missing: string[]; query: string } | null>(null);
   const [protocol, setProtocol] = useState<MarketMvpResearchProtocol | null>(null);
+  const [savedReportId, setSavedReportId] = useState<string | null>(null);
+  const [completedAnalysisInput, setCompletedAnalysisInput] = useState<CompletedAnalysisInput | null>(null);
+  const [analysisRunSerial, setAnalysisRunSerial] = useState(0);
+  const verdictRef = useRef<HTMLElement | null>(null);
+  const lastAutoScrolledResultRef = useRef<string | null>(null);
+  const handledAutoRunRef = useRef<string | null>(null);
+  const analysisRunSerialRef = useRef(0);
+
+  const scrollToVerdictResult = useCallback((autoScrollKey: string) => {
+    let attempts = 0;
+    const attemptScroll = () => {
+      const target = verdictRef.current ?? document.querySelector<HTMLElement>('[data-analyze-verdict="true"]');
+      if (!target) {
+        attempts += 1;
+        if (attempts < 80) {
+          window.setTimeout(attemptScroll, 100);
+        }
+        return;
+      }
+      if (lastAutoScrolledResultRef.current === autoScrollKey) return;
+      lastAutoScrolledResultRef.current = autoScrollKey;
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const behavior: ScrollBehavior = reduceMotion ? 'auto' : 'smooth';
+      target.scrollIntoView({ behavior, block: 'start' });
+      window.setTimeout(() => {
+        const rect = target.getBoundingClientRect();
+        if (rect.top > window.innerHeight * 0.45 || rect.top < 0) {
+          const scrollMarginTop = Number.parseFloat(window.getComputedStyle(target).scrollMarginTop || '0') || 0;
+          window.scrollTo({
+            top: Math.max(0, rect.top + window.scrollY - scrollMarginTop),
+            behavior,
+          });
+        }
+        window.setTimeout(() => {
+          const updatedRect = target.getBoundingClientRect();
+          if (updatedRect.top > window.innerHeight * 0.45 || updatedRect.top < 0) {
+            target.focus({ preventScroll: false });
+            if (window.location.hash !== '#analyze-verdict') {
+              window.location.hash = 'analyze-verdict';
+            }
+          }
+        }, reduceMotion ? 0 : 280);
+      }, reduceMotion ? 0 : 220);
+    };
+    window.setTimeout(attemptScroll, 50);
+  }, []);
 
   useEffect(() => { setSource(getSource()); }, []);
   useEffect(() => { window.sessionStorage.setItem(ANALYZE_QUERY_KEY, query); }, [query]);
@@ -516,11 +640,16 @@ export function AnalyzePage() {
     window.sessionStorage.setItem(ANALYZE_QUERY_KEY, nextQuery);
   };
 
-  const runAnalyze = async () => {
-    const normalizedQuery = query.trim();
+  const runAnalyze = useCallback(async (
+    briefValue = query,
+    requestedSource: AnalyzeSource = source,
+    requestedProfile: AnalyzeProfile = profile,
+  ) => {
+    const normalizedQuery = briefValue.trim();
     if (!normalizedQuery) {
       setResult(null);
       setProtocol(null);
+      setCompletedAnalysisInput(null);
       setInputQuality(null);
       setError('请先输入产品、想法或目标市场。');
       return;
@@ -531,20 +660,45 @@ export function AnalyzePage() {
     if (!quality.isEnough) {
       setInputQuality({ missing: quality.missing, query: normalizedQuery });
       setResult(null);
+      setCompletedAnalysisInput(null);
       setError(null);
       setAnalyzing(false);
       setActiveStep(0);
       return;
     }
     setError(null);
+    const nextAnalysisRunSerial = analysisRunSerialRef.current + 1;
+    analysisRunSerialRef.current = nextAnalysisRunSerial;
+    setAnalysisRunSerial(nextAnalysisRunSerial);
+    lastAutoScrolledResultRef.current = null;
+    if (window.location.hash === '#analyze-verdict') {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+    setSource(requestedSource);
     setResult(null);
+    setSavedReportId(null);
+    setCompletedAnalysisInput(null);
     setInputQuality(null);
     setAnalyzing(true);
     try {
-      const response = await analyzeOpportunity({ query: normalizedQuery, source, profile });
+      const response = await analyzeOpportunity({ query: normalizedQuery, source: requestedSource, profile: requestedProfile });
+      const normalizedResponse = normalizeViewResult(response);
       setSource(response.source);
-      setResult(normalizeViewResult(response));
+      setResult(normalizedResponse);
       setActiveStep(5);
+      if (normalizedResponse) {
+        setCompletedAnalysisInput({
+          query: normalizedQuery,
+          profile: {
+            ...requestedProfile,
+            assets: requestedProfile.assets ? [...requestedProfile.assets] : undefined,
+            capabilities: requestedProfile.capabilities ? [...requestedProfile.capabilities] : undefined,
+            avoidDirections: requestedProfile.avoidDirections ? [...requestedProfile.avoidDirections] : undefined,
+          },
+        });
+        const resultKey = `${normalizedResponse.analysisId || 'analysis'}:${normalizedResponse.generatedAt || 'generated'}`;
+        scrollToVerdictResult(`${nextAnalysisRunSerial}:${resultKey}`);
+      }
     } catch (requestError) {
       console.warn('Analyze request failed', requestError);
       setProtocol(null);
@@ -552,19 +706,52 @@ export function AnalyzePage() {
     } finally {
       setAnalyzing(false);
     }
-  };
+  }, [profile, query, scrollToVerdictResult, source]);
+
+  useEffect(() => {
+    if (!autoRunKey || analyzing) return;
+    if (handledAutoRunRef.current === autoRunKey) return;
+
+    const autoBrief = queryFromUrl.trim();
+    if (!autoBrief) return;
+
+    handledAutoRunRef.current = autoRunKey;
+    const requestedSource = getSource();
+    const nextProfile = {
+      ...profile,
+      targetMarket: targetMarketFromUrl || profile.targetMarket,
+    };
+    const cleanedParams = new URLSearchParams(window.location.search);
+    cleanedParams.delete('auto');
+    const nextSearch = cleanedParams.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}`);
+
+    setQuery(autoBrief);
+    setProfile(nextProfile);
+    setSource(requestedSource);
+    window.sessionStorage.setItem(ANALYZE_QUERY_KEY, autoBrief);
+    void runAnalyze(autoBrief, requestedSource, nextProfile);
+  }, [analyzing, autoRunKey, profile, queryFromUrl, runAnalyze, targetMarketFromUrl]);
 
   const resetAll = () => {
     setQuery('');
     setResult(null);
+    setSavedReportId(null);
+    setCompletedAnalysisInput(null);
     setError(null);
     setInputQuality(null);
     setProtocol(null);
     setActiveStep(0);
+    lastAutoScrolledResultRef.current = null;
     window.sessionStorage.removeItem(ANALYZE_QUERY_KEY);
   };
 
   const viewResult = useMemo(() => normalizeViewResult(result), [result]);
+  useEffect(() => {
+    if (!viewResult || analyzing) return;
+    const resultKey = `${viewResult.analysisId || 'analysis'}:${viewResult.generatedAt || 'generated'}`;
+    scrollToVerdictResult(`${analysisRunSerial}:${resultKey}`);
+  }, [analysisRunSerial, analyzing, scrollToVerdictResult, viewResult]);
   const backendJudgment = useMemo(() => getBackendJudgment(viewResult), [viewResult]);
   const displaySource = backendJudgment && (backendJudgment as { mode?: 'real' | 'mock' | 'fallback' }).mode
     ? (backendJudgment as { mode: 'real' | 'mock' | 'fallback' }).mode
@@ -580,12 +767,12 @@ export function AnalyzePage() {
   );
   const hasBlockingError = Boolean(error && !viewResult);
   const flowActiveIndex = useMemo(() => {
-    if (viewResult && protocol?.canJudge) return 4;
+    if (viewResult) return 4;
     if (analyzing) return 3;
     if (inputQuality) return 2;
     if (query.trim()) return 1;
     return 0;
-  }, [analyzing, inputQuality, protocol?.canJudge, query, viewResult]);
+  }, [analyzing, inputQuality, query, viewResult]);
   const radarSource = new URLSearchParams(window.location.search).has('source') ? source : 'real';
 
   return (
@@ -596,7 +783,7 @@ export function AnalyzePage() {
           source={displaySource}
           qualityScore={currentQuality.score}
           analyzing={analyzing}
-          hasResult={Boolean(viewResult && protocol?.canJudge)}
+          hasResult={Boolean(viewResult)}
           hasError={hasBlockingError}
         />
         <ValidationStepper activeIndex={flowActiveIndex} />
@@ -605,7 +792,7 @@ export function AnalyzePage() {
           source={source}
           analyzing={analyzing}
           onQueryChange={handleQueryChange}
-          onSubmit={runAnalyze}
+          onSubmit={() => { void runAnalyze(); }}
           onReset={resetAll}
         />
         <AssumptionExtractor
@@ -625,6 +812,17 @@ export function AnalyzePage() {
             source={source}
             result={viewResult}
             missingCriticalCount={missingCritical.length}
+            verdictRef={verdictRef}
+            reportSaveSlot={
+              viewResult ? (
+                <SaveReportPanel
+                  result={viewResult}
+                  completedAnalysisInput={completedAnalysisInput}
+                  savedReportId={savedReportId}
+                  onSaved={setSavedReportId}
+                />
+              ) : null
+            }
           />
         ) : null}
         {error && viewResult ? (
@@ -638,7 +836,7 @@ export function AnalyzePage() {
             <h2>分析服务未连接</h2>
             <p>分析服务未连接。请稍后重试，或切换样本模式查看验证结构。</p>
             <div className={styles.actionsRow}>
-              <button type="button" className={styles.primaryButton} onClick={runAnalyze}>重新分析</button>
+              <button type="button" className={styles.primaryButton} onClick={() => { void runAnalyze(); }}>重新分析</button>
               <a className={styles.ghostButton} href={`/opportunities?tab=signals&source=${radarSource}`}>查看市场信号榜</a>
             </div>
           </section>

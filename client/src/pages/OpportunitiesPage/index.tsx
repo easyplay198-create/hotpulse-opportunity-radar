@@ -282,7 +282,14 @@ function buildAnalyzeHref(opportunity?: RadarOpportunity, source: DataSource = '
     `验证重点：${opportunity.positiveReason}`,
     `主要风险：${opportunity.riskReason}`,
   ].filter(Boolean).join('，').slice(0, 600);
-  return `/analyze?${sourceQuery(source)}&q=${encodeURIComponent(query)}`;
+  const params = new URLSearchParams();
+  params.set('source', 'real');
+  params.set('auto', '1');
+  params.set('opportunityId', opportunity.id);
+  params.set('q', query);
+  if (market) params.set('targetMarket', market);
+  if (opportunity.productType) params.set('productType', opportunity.productType);
+  return `/analyze?${params.toString()}`;
 }
 
 export function OpportunitiesPage() {
