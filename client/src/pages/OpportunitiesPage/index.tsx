@@ -699,7 +699,7 @@ function OpportunityGrid({
             <span>{formatTime(opportunity.retrievedAt)}</span>
             <div>
               <button type="button" onClick={() => onSelect(opportunity.id)}>查看详情</button>
-              <a href={buildAnalyzeHref(opportunity, dataSource)}>开始验证</a>
+              <a href={buildAnalyzeHref(opportunity, dataSource)}>评估是否适合我</a>
             </div>
           </div>
         </article>
@@ -768,7 +768,7 @@ function OpportunityDrawer({
         </section>
 
         <div className={styles.drawerActions}>
-          <a className={styles.primaryButton} href={buildAnalyzeHref(opportunity, dataSource)}>用这个机会开始验证</a>
+          <a className={styles.primaryButton} href={buildAnalyzeHref(opportunity, dataSource)}>评估是否适合我</a>
           <button className={styles.secondaryButton} type="button" onClick={onClose}>返回机会列表</button>
         </div>
       </aside>

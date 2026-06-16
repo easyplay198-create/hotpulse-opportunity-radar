@@ -6,6 +6,8 @@ interface Props {
   query: string;
   source: 'real' | 'mock' | 'fallback';
   analyzing: boolean;
+  submitLabel?: string;
+  submitDisabled?: boolean;
   onQueryChange: (query: string) => void;
   onSubmit: () => void;
   onReset: () => void;
@@ -29,9 +31,18 @@ function sourceLabel(source: Props['source']) {
   return sourceModeLabel(source);
 }
 
-export function AnalyzeWorkbench({ query, source, analyzing, onQueryChange, onSubmit, onReset }: Props) {
+export function AnalyzeWorkbench({
+  query,
+  source,
+  analyzing,
+  submitLabel,
+  submitDisabled,
+  onQueryChange,
+  onSubmit,
+  onReset,
+}: Props) {
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') onSubmit();
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !submitDisabled && !analyzing) onSubmit();
   };
 
   return (
@@ -64,8 +75,8 @@ export function AnalyzeWorkbench({ query, source, analyzing, onQueryChange, onSu
           <div className={styles.commandGuide}>
             <span>Ctrl / Cmd + Enter 可直接开始验证</span>
             <div className={styles.commandActions}>
-              <button type="button" className={styles.commandPrimaryButton} onClick={onSubmit} disabled={analyzing}>
-                {analyzing ? '验证中...' : '生成验证判断'}
+              <button type="button" className={styles.commandPrimaryButton} onClick={onSubmit} disabled={analyzing || submitDisabled}>
+                {analyzing ? '验证中...' : (submitLabel ?? '生成验证判断')}
               </button>
               <button type="button" className={styles.commandSecondaryButton} onClick={onReset}>
                 重新输入

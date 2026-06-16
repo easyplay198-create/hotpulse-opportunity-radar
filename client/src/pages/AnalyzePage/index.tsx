@@ -16,6 +16,7 @@ import styles from './AnalyzePage.module.css';
 type AnalyzeSource = 'real' | 'mock' | 'fallback';
 
 const ANALYZE_QUERY_KEY = 'hotpulse_analyze_query';
+const AUTO_RUN_ONCE_PREFIX = 'hotpulse_auto_run_once';
 const DEFAULT_PROFILE: AnalyzeProfile = {
   productStage: '想法阶段',
   targetMarket: 'Global',
@@ -52,8 +53,29 @@ type AnalyzeResponseWithJudgment = AnalyzeResponse & {
   missingInfo?: Array<string | { key?: string; label?: string }>;
 };
 
+type GateFieldKey = 'productType' | 'targetMarket' | 'targetUser' | 'painPoint' | 'businessModel';
+
+type ValidationGateConditions = Record<GateFieldKey, string>;
+
+const REQUIRED_GATE_FIELDS: Array<{ key: GateFieldKey; label: string }> = [
+  { key: 'productType', label: '产品类型' },
+  { key: 'targetMarket', label: '目标市场' },
+  { key: 'targetUser', label: '目标用户' },
+  { key: 'painPoint', label: '核心痛点' },
+  { key: 'businessModel', label: '商业模式' },
+];
+
 const PENDING_VALUE = '待补充';
 const CRITICAL_ASSUMPTION_KEYS = ['targetMarket', 'targetUser', 'painPoint', 'businessModel', 'acquisitionChannel', 'platformForm'];
+const INVALID_GATE_TOKENS = new Set([
+  '',
+  '待补充',
+  '待确认',
+  '未明确',
+  '未知',
+  'inferred_hypothesis',
+  '尚未确定',
+]);
 
 const ASSUMPTION_EXAMPLES: Record<string, string> = {
   targetMarket: '目标市场：例如日本、东南亚、美国或 Global',
@@ -63,6 +85,53 @@ const ASSUMPTION_EXAMPLES: Record<string, string> = {
   acquisitionChannel: '获客渠道：例如 SEO、社群、投放、应用商店或 Product Hunt',
   platformForm: '产品形态：例如 Web SaaS、移动 App、浏览器插件、游戏或硬件',
 };
+
+function normalizeGateValue(value: string) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function isExplicitGateValue(value: string) {
+  const normalized = normalizeGateValue(value);
+  if (!normalized) return false;
+  if (INVALID_GATE_TOKENS.has(normalized)) return false;
+  if (/例如|示例|占位/.test(normalized)) return false;
+  return true;
+}
+
+function extractLabeledValue(query: string, label: string) {
+  const pattern = new RegExp(`${label}[：:]\\s*([^\\n\\r，。]{1,80})`);
+  const matched = query.match(pattern)?.[1];
+  return normalizeGateValue(matched ?? '');
+}
+
+function extractGateConditionsFromBrief(query: string, fallbackMarket: string, fallbackProductType: string): ValidationGateConditions {
+  const productType = extractLabeledValue(query, '产品类型') || normalizeGateValue(fallbackProductType);
+  const targetMarket = extractLabeledValue(query, '目标市场') || normalizeGateValue(fallbackMarket);
+  const targetUser = extractLabeledValue(query, '目标用户');
+  const painPoint = extractLabeledValue(query, '核心痛点');
+  const businessModel = extractLabeledValue(query, '商业模式');
+  return { productType, targetMarket, targetUser, painPoint, businessModel };
+}
+
+function mergeGateConditionsIntoBrief(baseQuery: string, conditions: ValidationGateConditions) {
+  const strippedBase = baseQuery
+    .replace(/(^|\n)\s*产品类型[：:].*/g, '')
+    .replace(/(^|\n)\s*目标市场[：:].*/g, '')
+    .replace(/(^|\n)\s*目标用户[：:].*/g, '')
+    .replace(/(^|\n)\s*核心痛点[：:].*/g, '')
+    .replace(/(^|\n)\s*商业模式[：:].*/g, '')
+    .trim();
+  const header = [
+    `产品类型：${conditions.productType}`,
+    `目标市场：${conditions.targetMarket}`,
+    `目标用户：${conditions.targetUser}`,
+    `核心痛点：${conditions.painPoint}`,
+    `商业模式：${conditions.businessModel}`,
+  ].join('\n');
+  return strippedBase
+    ? `${header}\n\n机会信号：\n${strippedBase}`
+    : header;
+}
 
 function pickLabel(text: string, rules: Array<[RegExp, string]>) {
   const match = rules.find(([pattern]) => pattern.test(text));
@@ -343,12 +412,14 @@ function AnalyzeHero({
   analyzing,
   hasResult,
   hasError,
+  statusOverride,
 }: {
   source: 'real' | 'mock' | 'fallback';
   qualityScore: number;
   analyzing: boolean;
   hasResult: boolean;
   hasError: boolean;
+  statusOverride?: string;
 }) {
   const sourceMode = sourceModeCopy(source, hasError);
   const statusItems = [
@@ -370,7 +441,7 @@ function AnalyzeHero({
       <aside className={styles.heroStatusCard} aria-label="验证工作台状态">
         <div className={styles.heroStatusHeader}>
           <span>Validation OS</span>
-          <strong>{hasError ? 'Error' : analyzing ? 'Running' : hasResult ? 'Ready' : 'Standby'}</strong>
+          <strong>{statusOverride ?? (hasError ? 'Error' : analyzing ? 'Running' : hasResult ? 'Ready' : 'Standby')}</strong>
         </div>
         <div className={styles.sourceModeBanner}>
           <span>{sourceMode.title}</span>
@@ -473,6 +544,88 @@ function SaveReportPanel({
   );
 }
 
+function OpportunityValidationGate({
+  conditions,
+  onChange,
+  missingLabels,
+}: {
+  conditions: ValidationGateConditions;
+  onChange: (key: GateFieldKey, value: string) => void;
+  missingLabels: string[];
+}) {
+  const completedCount = REQUIRED_GATE_FIELDS.length - missingLabels.length;
+  const canSubmit = missingLabels.length === 0;
+  return (
+    <section className={styles.validationGatePanel} aria-label="补齐验证条件">
+      <div className={styles.validationGateHeader}>
+        <div>
+          <span className={styles.panelEyebrow}>Validation Gate</span>
+          <h2>补齐验证条件后生成报告</h2>
+          <p>从机会雷达进入时，需要先确认 5 项关键条件，避免过早触发“信息不足”的完整验证。</p>
+        </div>
+        <strong>{completedCount} / {REQUIRED_GATE_FIELDS.length}</strong>
+      </div>
+      <div className={styles.validationGateGrid}>
+        <label className={styles.validationGateField}>
+          <span>产品类型</span>
+          <input value={conditions.productType} onChange={(event) => onChange('productType', event.target.value)} placeholder="例如 AI 应用 / SaaS / App" />
+        </label>
+        <label className={styles.validationGateField}>
+          <span>目标市场</span>
+          <input value={conditions.targetMarket} onChange={(event) => onChange('targetMarket', event.target.value)} list="gate-market-options" placeholder="例如 日本" />
+          <datalist id="gate-market-options">
+            <option value="日本" />
+            <option value="东南亚" />
+            <option value="美国" />
+            <option value="欧洲" />
+            <option value="全球" />
+            <option value="其他" />
+          </datalist>
+        </label>
+        <label className={styles.validationGateField}>
+          <span>目标用户</span>
+          <input value={conditions.targetUser} onChange={(event) => onChange('targetUser', event.target.value)} list="gate-user-options" placeholder="例如 独立开发者" />
+          <datalist id="gate-user-options">
+            <option value="个人消费者" />
+            <option value="独立开发者" />
+            <option value="小团队" />
+            <option value="中小企业" />
+            <option value="大型企业" />
+            <option value="其他" />
+          </datalist>
+        </label>
+        <label className={styles.validationGateField}>
+          <span>商业模式</span>
+          <input value={conditions.businessModel} onChange={(event) => onChange('businessModel', event.target.value)} list="gate-business-options" placeholder="例如 订阅" />
+          <datalist id="gate-business-options">
+            <option value="订阅" />
+            <option value="一次性付费" />
+            <option value="广告" />
+            <option value="佣金 / 抽成" />
+            <option value="服务费" />
+            <option value="硬件 + 服务" />
+            <option value="尚未确定" />
+            <option value="其他" />
+          </datalist>
+        </label>
+        <label className={styles.validationGateFieldWide}>
+          <span>核心痛点（目标用户为什么现在需要解决这个问题）</span>
+          <textarea
+            value={conditions.painPoint}
+            onChange={(event) => onChange('painPoint', event.target.value)}
+            placeholder="例如：独立开发者难以低成本验证海外用户需求，现有工具配置复杂且反馈周期过长。"
+            rows={3}
+          />
+        </label>
+      </div>
+      <div className={styles.validationGateStatus}>
+        <strong>{canSubmit ? '条件已完整，可生成完整验证报告。' : `还需补齐 ${missingLabels.length} 项条件：${missingLabels.join('、')}`}</strong>
+        <small>仅当 5 项均为明确值时，系统才会执行完整验证。</small>
+      </div>
+    </section>
+  );
+}
+
 function AssumptionExtractor({
   assumptions,
   missingCritical,
@@ -547,8 +700,10 @@ export function AnalyzePage() {
   const targetMarketFromUrl = searchParams.get('targetMarket') ?? '';
   const productTypeFromUrl = searchParams.get('productType') ?? '';
   const opportunityIdFromUrl = searchParams.get('opportunityId') ?? '';
+  const sourceFromUrl = searchParams.get('source') ?? '';
   const autoRunFromUrl = searchParams.get('auto') === '1';
-  const autoRunKey = autoRunFromUrl && queryFromUrl.trim()
+  const isOpportunityEntry = Boolean(autoRunFromUrl && queryFromUrl.trim() && opportunityIdFromUrl && sourceFromUrl === 'real');
+  const autoRunKey = isOpportunityEntry
     ? `${opportunityIdFromUrl || 'opportunity'}:${productTypeFromUrl}:${queryFromUrl.trim()}`
     : null;
   const [source, setSource] = useState<AnalyzeSource>(() => getSource());
@@ -566,6 +721,8 @@ export function AnalyzePage() {
   const [savedReportId, setSavedReportId] = useState<string | null>(null);
   const [completedAnalysisInput, setCompletedAnalysisInput] = useState<CompletedAnalysisInput | null>(null);
   const [analysisRunSerial, setAnalysisRunSerial] = useState(0);
+  const [gateConditions, setGateConditions] = useState<ValidationGateConditions>(() => extractGateConditionsFromBrief(queryFromUrl, targetMarketFromUrl, productTypeFromUrl));
+  const [opportunityGateActive, setOpportunityGateActive] = useState(isOpportunityEntry);
   const verdictRef = useRef<HTMLElement | null>(null);
   const lastAutoScrolledResultRef = useRef<string | null>(null);
   const handledAutoRunRef = useRef<string | null>(null);
@@ -623,6 +780,12 @@ export function AnalyzePage() {
     setQuery(value);
     setInputQuality(null);
     setError(null);
+    if (opportunityGateActive) {
+      setGateConditions((current) => ({
+        ...current,
+        ...extractGateConditionsFromBrief(value, current.targetMarket, current.productType),
+      }));
+    }
   };
 
   const applyQualityExample = (value: string) => {
@@ -639,6 +802,14 @@ export function AnalyzePage() {
     setError(null);
     window.sessionStorage.setItem(ANALYZE_QUERY_KEY, nextQuery);
   };
+
+  const missingGateLabels = useMemo(
+    () => REQUIRED_GATE_FIELDS
+      .filter(({ key }) => !isExplicitGateValue(gateConditions[key]))
+      .map(({ label }) => label),
+    [gateConditions],
+  );
+  const isGateReady = missingGateLabels.length === 0;
 
   const runAnalyze = useCallback(async (
     briefValue = query,
@@ -711,12 +882,19 @@ export function AnalyzePage() {
   useEffect(() => {
     if (!autoRunKey || analyzing) return;
     if (handledAutoRunRef.current === autoRunKey) return;
+    const autoRunOnceKey = `${AUTO_RUN_ONCE_PREFIX}:${autoRunKey}`;
+    if (window.sessionStorage.getItem(autoRunOnceKey) === '1') return;
 
     const autoBrief = queryFromUrl.trim();
     if (!autoBrief) return;
 
     handledAutoRunRef.current = autoRunKey;
+    window.sessionStorage.setItem(autoRunOnceKey, '1');
     const requestedSource = getSource();
+    const nextGateConditions = extractGateConditionsFromBrief(autoBrief, targetMarketFromUrl, productTypeFromUrl);
+    const nextMissing = REQUIRED_GATE_FIELDS
+      .filter(({ key }) => !isExplicitGateValue(nextGateConditions[key]))
+      .map(({ label }) => label);
     const nextProfile = {
       ...profile,
       targetMarket: targetMarketFromUrl || profile.targetMarket,
@@ -729,9 +907,27 @@ export function AnalyzePage() {
     setQuery(autoBrief);
     setProfile(nextProfile);
     setSource(requestedSource);
+    setGateConditions(nextGateConditions);
+    setOpportunityGateActive(true);
+    setResult(null);
+    setCompletedAnalysisInput(null);
+    setSavedReportId(null);
+    setInputQuality(null);
+    setError(null);
+    setAnalyzing(false);
+    setActiveStep(0);
     window.sessionStorage.setItem(ANALYZE_QUERY_KEY, autoBrief);
-    void runAnalyze(autoBrief, requestedSource, nextProfile);
-  }, [analyzing, autoRunKey, profile, queryFromUrl, runAnalyze, targetMarketFromUrl]);
+    if (nextMissing.length === 0) {
+      const mergedBrief = mergeGateConditionsIntoBrief(autoBrief, nextGateConditions);
+      setQuery(mergedBrief);
+      window.sessionStorage.setItem(ANALYZE_QUERY_KEY, mergedBrief);
+      void runAnalyze(mergedBrief, requestedSource, {
+        ...nextProfile,
+        targetMarket: nextGateConditions.targetMarket,
+      });
+      setOpportunityGateActive(false);
+    }
+  }, [analyzing, autoRunKey, profile, productTypeFromUrl, queryFromUrl, runAnalyze, targetMarketFromUrl]);
 
   const resetAll = () => {
     setQuery('');
@@ -742,6 +938,14 @@ export function AnalyzePage() {
     setInputQuality(null);
     setProtocol(null);
     setActiveStep(0);
+    setGateConditions({
+      productType: '',
+      targetMarket: '',
+      targetUser: '',
+      painPoint: '',
+      businessModel: '',
+    });
+    setOpportunityGateActive(false);
     lastAutoScrolledResultRef.current = null;
     window.sessionStorage.removeItem(ANALYZE_QUERY_KEY);
   };
@@ -774,6 +978,31 @@ export function AnalyzePage() {
     return 0;
   }, [analyzing, inputQuality, query, viewResult]);
   const radarSource = new URLSearchParams(window.location.search).has('source') ? source : 'real';
+  const handleGateChange = (key: GateFieldKey, value: string) => {
+    setGateConditions((current) => ({ ...current, [key]: value }));
+  };
+  const handleSubmit = () => {
+    if (opportunityGateActive) {
+      if (!isGateReady) return;
+      const mergedBrief = mergeGateConditionsIntoBrief(query, gateConditions);
+      const nextProfile = {
+        ...profile,
+        targetMarket: gateConditions.targetMarket,
+      };
+      setQuery(mergedBrief);
+      setProfile(nextProfile);
+      window.sessionStorage.setItem(ANALYZE_QUERY_KEY, mergedBrief);
+      void runAnalyze(mergedBrief, source, nextProfile);
+      setOpportunityGateActive(false);
+      return;
+    }
+    void runAnalyze();
+  };
+  const submitLabel = opportunityGateActive
+    ? (isGateReady ? '生成完整验证报告' : `还需补齐 ${missingGateLabels.length} 项条件`)
+    : '生成验证判断';
+  const submitDisabled = opportunityGateActive && !isGateReady;
+  const validationOsStatus = opportunityGateActive && !isGateReady ? '等待补齐验证条件' : undefined;
 
   return (
     <AppShell>
@@ -785,16 +1014,26 @@ export function AnalyzePage() {
           analyzing={analyzing}
           hasResult={Boolean(viewResult)}
           hasError={hasBlockingError}
+          statusOverride={validationOsStatus}
         />
         <ValidationStepper activeIndex={flowActiveIndex} />
         <AnalyzeWorkbench
           query={query}
           source={source}
           analyzing={analyzing}
+          submitLabel={submitLabel}
+          submitDisabled={submitDisabled}
           onQueryChange={handleQueryChange}
-          onSubmit={() => { void runAnalyze(); }}
+          onSubmit={handleSubmit}
           onReset={resetAll}
         />
+        {opportunityGateActive ? (
+          <OpportunityValidationGate
+            conditions={gateConditions}
+            onChange={handleGateChange}
+            missingLabels={missingGateLabels}
+          />
+        ) : null}
         <AssumptionExtractor
           assumptions={assumptions}
           missingCritical={missingCritical}

@@ -287,6 +287,119 @@
   opacity: 0.86;
 }
 
+.validationGatePanel {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid #dbe7f4;
+  border-radius: 20px;
+  background: #fbfdff;
+}
+
+.validationGateHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.validationGateHeader h2 {
+  margin: 6px 0 8px;
+  color: #10203d;
+  font-size: 24px;
+  line-height: 1.18;
+}
+
+.validationGateHeader p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.validationGateHeader > strong {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #dbe7f4;
+  border-radius: 999px;
+  background: #f8fbff;
+  color: #244b86;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.validationGateGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.validationGateField,
+.validationGateFieldWide {
+  display: grid;
+  gap: 8px;
+}
+
+.validationGateFieldWide {
+  grid-column: 1 / -1;
+}
+
+.validationGateField span,
+.validationGateFieldWide span {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.validationGateField input,
+.validationGateFieldWide textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #dbe7f4;
+  border-radius: 12px;
+  background: #fff;
+  color: #10203d;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.validationGateField input {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.validationGateFieldWide textarea {
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.validationGateField input:focus,
+.validationGateFieldWide textarea:focus {
+  border-color: #8fb2e6;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+}
+
+.validationGateStatus {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #dbe7f4;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.validationGateStatus strong {
+  color: #10203d;
+  font-size: 14px;
+}
+
+.validationGateStatus small {
+  color: #64748b;
+  font-size: 12px;
+}
+
 .workbenchCard {
   display: grid;
   gap: 22px;
@@ -2205,7 +2318,8 @@
   .progressSteps,
   .qualityGrid,
   .assumptionGrid,
-  .decisionContractGrid {
+  .decisionContractGrid,
+  .validationGateGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2236,6 +2350,7 @@
   .progressSteps,
   .qualityGrid,
   .assumptionGrid,
+  .validationGateGrid,
   .advancedGrid,
   .decisionMetaGrid,
   .decisionContractGrid,
