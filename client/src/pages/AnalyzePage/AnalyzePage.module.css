@@ -400,6 +400,165 @@
   font-size: 12px;
 }
 
+.workflowPanel {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid #dbe7f4;
+  border-radius: 20px;
+  background: #fff;
+}
+
+.workflowHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflowHeader h2 {
+  margin: 6px 0 8px;
+  color: #10203d;
+  font-size: 24px;
+}
+
+.workflowHeader p {
+  margin: 0;
+  color: #64748b;
+}
+
+.workflowHeader > strong {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid #dbe7f4;
+  background: #f8fbff;
+  color: #244b86;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.workflowFallbackNotice {
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 12px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.workflowStageList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workflowStageItem {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #dbe7f4;
+  border-radius: 14px;
+  background: #fbfdff;
+}
+
+.workflowStageTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workflowStageTop strong {
+  color: #10203d;
+  font-size: 14px;
+}
+
+.workflowStageTop span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workflowStageItem p {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.workflowStageItem small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.workflowStageRunning {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: #eff6ff;
+}
+
+.workflowStageCompleted {
+  border-color: rgba(34, 197, 94, 0.25);
+  background: #f8fffb;
+}
+
+.workflowStagePartial {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: #fffbeb;
+}
+
+.workflowStageFailed {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: #fff7f7;
+}
+
+.workflowProviders {
+  border: 1px solid #dbe7f4;
+  border-radius: 14px;
+  background: #f8fbff;
+  padding: 10px 12px;
+}
+
+.workflowProviders summary {
+  cursor: pointer;
+  color: #334155;
+  font-weight: 800;
+}
+
+.workflowProviderList {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.workflowProviderItem {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  padding: 10px 12px;
+  border: 1px solid #dbe7f4;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.workflowProviderItem strong {
+  color: #10203d;
+  font-size: 13px;
+}
+
+.workflowProviderItem span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workflowProviderItem small {
+  grid-column: 1 / -1;
+  color: #475569;
+  font-size: 12px;
+}
+
 .workbenchCard {
   display: grid;
   gap: 22px;
@@ -2305,6 +2464,460 @@
   align-items: center;
 }
 
+/* ── Workflow panel enhancements ─────────────────────────────── */
+
+@keyframes workflowBorderPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+    border-color: rgba(37, 99, 235, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.09);
+    border-color: rgba(37, 99, 235, 0.6);
+  }
+}
+
+@keyframes workflowTrackSlide {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}
+
+/* Top status bar */
+.workflowStatusBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid #dbe7f4;
+  border-radius: 14px;
+  background: #f8fbff;
+  scroll-margin-top: 80px;
+}
+
+.workflowStatusBarStreaming {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: #eff6ff;
+}
+
+.workflowStatusBarCompleted {
+  border-color: rgba(34, 197, 94, 0.25);
+  background: #f8fffb;
+}
+
+.workflowStatusBarFailed {
+  border-color: rgba(239, 68, 68, 0.2);
+  background: #fff7f7;
+}
+
+.workflowStatusMain {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.workflowStatusStageName {
+  color: #10203d;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.workflowStatusMeta {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workflowStatusElapsed {
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Vertical stage list */
+.workflowStageListV {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+/* Running stage – expanded, pulsing */
+.workflowStageRunningCard {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  border-radius: 14px;
+  background: #eff6ff;
+  animation: workflowBorderPulse 2s ease-in-out infinite;
+}
+
+.workflowStageRunningTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.workflowStageRunningTop strong {
+  color: #1d4ed8;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.workflowStageRunningTop span {
+  color: #3b82f6;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.workflowStageRunningMsg {
+  margin: 0;
+  color: #1e40af;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Animated progress track (no fake %) */
+.workflowProgressTrack {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: #bfdbfe;
+  overflow: hidden;
+}
+
+.workflowProgressFill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 45%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3b82f6, #93c5fd);
+  animation: workflowTrackSlide 1.5s ease-in-out infinite;
+}
+
+/* Compact stage card (completed / partial / failed / waiting) */
+.workflowStageCompactCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border: 1px solid #dbe7f4;
+  border-radius: 11px;
+  background: #f8fbff;
+  min-height: 36px;
+}
+
+.workflowStageCompletedColor {
+  border-color: rgba(34, 197, 94, 0.2);
+  background: #f8fffb;
+}
+
+.workflowStagePartialColor {
+  border-color: rgba(245, 158, 11, 0.22);
+  background: #fffbeb;
+}
+
+.workflowStageFailedColor {
+  border-color: rgba(239, 68, 68, 0.18);
+  background: #fff7f7;
+}
+
+.workflowStageWaitingColor {
+  opacity: 0.55;
+}
+
+.workflowStageIcon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.workflowStageIconCompleted {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.workflowStageIconPartial {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.workflowStageIconFailed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.workflowStageIconWaiting {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+.workflowStageCompactLabel {
+  flex: 1;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 0;
+}
+
+.workflowStageCompactMeta {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.workflowStageCompactMetaHighlight {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Recent activity feed */
+.workflowRecentActivity {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #dbe7f4;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.workflowRecentActivityLabel {
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.workflowActivityItem {
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workflowActivityLatest {
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+/* ── Header right (button + badge) ──────────────────────────── */
+.workflowHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Toggle button ────────────────────────────────────────────── */
+.workflowToggleButton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid #dbe7f4;
+  border-radius: 999px;
+  background: #fff;
+  color: #244b86;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.workflowToggleButton:hover {
+  border-color: #b9cbe1;
+  background: #f8fbff;
+}
+
+/* ── Idle card ─────────────────────────────────────────────────── */
+.workflowIdleCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 1px solid #dbe7f4;
+  border-radius: 16px;
+  background: #f8fbff;
+}
+
+.workflowIdleIcon {
+  color: #94a3b8;
+  font-size: 20px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.workflowIdleText {
+  display: grid;
+  gap: 2px;
+}
+
+.workflowIdleText strong {
+  color: #334155;
+  font-size: 14px;
+}
+
+.workflowIdleText span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+/* ── Completed collapsed summary ──────────────────────────────── */
+.workflowCompletedCard {
+  padding: 12px 18px;
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  border-radius: 16px;
+  background: #f8fffb;
+}
+
+.workflowCompletedSummary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.workflowCompletedIcon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.workflowCompletedInfo {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workflowCompletedInfo strong {
+  color: #10203d;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.workflowCompletedInfo span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+/* ── Cancelled card ───────────────────────────────────────────── */
+.workflowCancelledCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.workflowCancelledIcon {
+  color: #94a3b8;
+  font-size: 16px;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+/* ── Brief conditions checklist ──────────────────────────────── */
+.briefConditions {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid #dbe7f4;
+  border-radius: 16px;
+  background: #f8fbff;
+}
+
+.briefConditionsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.briefConditionsHeader span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.briefConditionsHeader strong {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.briefConditionsList {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.briefConditionChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.briefConditionChipFilled {
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.briefConditionChipMissing {
+  border: 1px solid #dbe7f4;
+  background: #f8fbff;
+  color: #94a3b8;
+}
+
+.briefConditionDot {
+  font-size: 11px;
+  font-weight: 900;
+}
+
 @media (max-width: 1120px) {
   .analyzeHero,
   .workbenchGrid,
@@ -2319,7 +2932,8 @@
   .qualityGrid,
   .assumptionGrid,
   .decisionContractGrid,
-  .validationGateGrid {
+  .validationGateGrid,
+  .workflowStageList {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2351,6 +2965,7 @@
   .qualityGrid,
   .assumptionGrid,
   .validationGateGrid,
+  .workflowStageList,
   .advancedGrid,
   .decisionMetaGrid,
   .decisionContractGrid,

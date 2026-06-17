@@ -12,6 +12,7 @@ import { getMarketEntryKnowledge } from './sources/marketEntryKnowledge.js';
 import { getFirstPartyCapabilityProfiles, getFirstPartyMarketProfile } from './knowledge/firstPartyKnowledgeBase.js';
 import { buildLlmDraftForAnalyze } from './analyze/llmOrchestrator.js';
 import { canonicalSnapshotsEqual, createCanonicalInvariantSnapshot } from './analyze/llmGuardrails.js';
+import { STREAM_EVENTS, STREAM_STAGES, summarizeProviderError } from './analyze/streamProtocol.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -397,8 +398,36 @@ function rawProviderItems(value) {
   return { items: [] };
 }
 
-async function loadAnalyzeItemsWithProviders(source, providers) {
+async function loadAnalyzeItemsWithProviders(source, providers, options = {}) {
+  const { onProgress, runId } = options;
+  const emitProvider = (payload) => {
+    if (typeof onProgress !== 'function') return;
+    onProgress({
+      event: STREAM_EVENTS.PROVIDER,
+      runId,
+      timestamp: new Date().toISOString(),
+      ...payload,
+    });
+  };
   if (source !== 'real') {
+    if (typeof onProgress === 'function') {
+      onProgress({
+        event: STREAM_EVENTS.PROGRESS,
+        runId,
+        stage: STREAM_STAGES.PROVIDERS_STARTED,
+        status: source === 'fallback' ? 'partial' : 'completed',
+        message: source === 'fallback' ? '使用回退证据，未调用实时提供方' : '使用样本信号，未调用实时提供方',
+        metrics: {
+          providerCount: 0,
+          completedCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          elapsedMs: 0,
+          mode: source,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
     return {
       source: source === 'fallback' ? 'fallback' : 'mock',
       items: getMockOpportunities().map(enhanceWithMarketKnowledge),
@@ -407,49 +436,104 @@ async function loadAnalyzeItemsWithProviders(source, providers) {
   }
 
   const providerStats = createAnalyzeProviderStats(providers);
-  const results = await Promise.allSettled(providers.map((provider) => Promise.resolve().then(() => provider.load())));
+  const providersStartedAt = Date.now();
+  let providerCompletedCount = 0;
+  let providerFailedCount = 0;
+  let providerSkippedCount = 0;
+  const results = await Promise.all(providers.map(async (provider) => {
+    const startedAt = Date.now();
+    try {
+      const value = await Promise.resolve().then(() => provider.load());
+      const elapsedMs = Date.now() - startedAt;
+      const { items: rawItems, error, skippedReason } = rawProviderItems(value);
+      if (error) {
+        emitProvider({
+          provider: provider.key,
+          stage: 'provider_failed',
+          status: 'failed',
+          message: `${provider.key} 获取失败`,
+          metrics: { retrieved: 0, accepted: 0, elapsedMs },
+          error: summarizeProviderError(error),
+        });
+        return { provider, ok: false, error, elapsedMs, rawItems: [] };
+      }
+      if (skippedReason) {
+        emitProvider({
+          provider: provider.key,
+          stage: 'provider_skipped',
+          status: 'skipped',
+          message: `${provider.key} 已跳过`,
+          metrics: { retrieved: 0, accepted: 0, elapsedMs },
+          skippedReason: summarizeProviderError(skippedReason),
+        });
+        return { provider, ok: false, skippedReason, elapsedMs, rawItems: [] };
+      }
+      const validItems = rawItems.map(ensureEvidenceItem).filter(Boolean).map(enhanceWithMarketKnowledge);
+      emitProvider({
+        provider: provider.key,
+        stage: 'provider_completed',
+        status: 'completed',
+        message: `${provider.key} 返回 ${validItems.length} 条`,
+        metrics: { retrieved: rawItems.length, accepted: validItems.length, elapsedMs },
+      });
+      return { provider, ok: true, elapsedMs, validItems };
+    } catch (error) {
+      const elapsedMs = Date.now() - startedAt;
+      const errorMessage = error instanceof Error ? error.message : summarizeProviderError(error);
+      emitProvider({
+        provider: provider.key,
+        stage: 'provider_failed',
+        status: 'failed',
+        message: `${provider.key} 获取失败`,
+        metrics: { retrieved: 0, accepted: 0, elapsedMs },
+        error: summarizeProviderError(errorMessage),
+      });
+      return { provider, ok: false, error: errorMessage || 'fetch failed', elapsedMs, rawItems: [] };
+    }
+  }));
   const itemsByProvider = new Map();
 
-  results.forEach((result, index) => {
-    const provider = providers[index];
-    if (result.status !== 'fulfilled') {
+  results.forEach((result) => {
+    const provider = result.provider;
+    if (!result.ok) {
+      const errorMessage = result.error ? summarizeProviderError(result.error) : undefined;
       providerStats[provider.key] = {
         ok: false,
         fetchedCount: 0,
         returnedCount: 0,
-        error: result.reason instanceof Error ? result.reason.message : 'fetch failed',
+        ...(result.skippedReason
+          ? { skippedReason: summarizeProviderError(result.skippedReason) }
+          : { error: errorMessage || 'fetch failed' }),
       };
       itemsByProvider.set(provider.key, []);
+      if (result.skippedReason) providerSkippedCount += 1;
+      else providerFailedCount += 1;
       return;
     }
 
-    const { items: rawItems, error, skippedReason } = rawProviderItems(result.value);
-    if (error) {
-      providerStats[provider.key] = {
-        ok: false,
-        fetchedCount: 0,
-        returnedCount: 0,
-        error,
-      };
-      itemsByProvider.set(provider.key, []);
-      return;
-    }
-
-    if (skippedReason) {
-      providerStats[provider.key] = {
-        ok: false,
-        fetchedCount: 0,
-        returnedCount: 0,
-        skippedReason,
-      };
-      itemsByProvider.set(provider.key, []);
-      return;
-    }
-
-    const validItems = rawItems.map(ensureEvidenceItem).filter(Boolean).map(enhanceWithMarketKnowledge);
-    providerStats[provider.key].fetchedCount = validItems.length;
-    itemsByProvider.set(provider.key, validItems);
+    providerStats[provider.key].fetchedCount = result.validItems.length;
+    itemsByProvider.set(provider.key, result.validItems);
+    providerCompletedCount += 1;
   });
+
+  if (typeof onProgress === 'function') {
+    const providerStageStatus = providerFailedCount > 0 || providerSkippedCount > 0 ? 'partial' : 'completed';
+    onProgress({
+      event: STREAM_EVENTS.PROGRESS,
+      runId,
+      stage: STREAM_STAGES.PROVIDERS_STARTED,
+      status: providerStageStatus,
+      message: providerStageStatus === 'completed' ? '市场信号收集完成' : '市场信号收集部分降级',
+      metrics: {
+        providerCount: providers.length,
+        completedCount: providerCompletedCount,
+        failedCount: providerFailedCount,
+        skippedCount: providerSkippedCount,
+        elapsedMs: Date.now() - providersStartedAt,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  }
 
   const items = providers
     .flatMap((provider) => itemsByProvider.get(provider.key) || [])
@@ -1336,6 +1420,166 @@ function normalizeFirstPartyEvidence(firstPartyKnowledge) {
   }));
 }
 
+function explicitFieldCount(assumptions) {
+  const fields = ['productType', 'targetMarket', 'targetUser', 'painPoint', 'businessModel'];
+  return fields.reduce((sum, key) => (assumptions?.[key] && assumptions[key] !== '未明确' ? sum + 1 : sum), 0);
+}
+
+async function runAnalyzeWorkflow({ body, runId = `run-${Date.now()}`, onProgress } = {}) {
+  const emit = (payload) => {
+    if (typeof onProgress !== 'function') return;
+    onProgress({
+      runId,
+      timestamp: new Date().toISOString(),
+      ...payload,
+    });
+  };
+
+  const query = typeof body?.query === 'string' ? body.query.trim() : '';
+  const requestedSource = body?.source === 'real' ? 'real' : body?.source === 'fallback' ? 'fallback' : 'mock';
+  const profile = body?.profile && typeof body.profile === 'object' ? body.profile : {};
+
+  emit({
+    event: STREAM_EVENTS.PROGRESS,
+    stage: STREAM_STAGES.INPUT_RECEIVED,
+    status: 'completed',
+    message: '已接收验证请求',
+  });
+
+  const parsedIntent = parseQueryIntent(query, profile);
+  emit({
+    event: STREAM_EVENTS.PROGRESS,
+    stage: STREAM_STAGES.BRIEF_PARSED,
+    status: 'completed',
+    message: '已识别产品、市场和目标用户',
+    metrics: {
+      productTypeKnown: parsedIntent.productCategory !== '通用工具',
+      targetMarketKnown: parsedIntent.targetMarket !== '未明确',
+      targetUserKnown: parsedIntent.audienceStatus === 'explicit',
+      audienceStatus: parsedIntent.audienceStatus,
+    },
+  });
+
+  const assumptions = buildJudgmentAssumptions(query, profile, parsedIntent);
+  const missingInfo = buildMissingInfo(assumptions);
+  emit({
+    event: STREAM_EVENTS.PROGRESS,
+    stage: STREAM_STAGES.CONDITIONS_CHECKED,
+    status: 'completed',
+    message: missingInfo.length ? '验证条件仍有缺项' : '验证条件已满足进入分析',
+    metrics: {
+      explicitFields: explicitFieldCount(assumptions),
+      missingCount: missingInfo.length,
+    },
+  });
+
+  emit({
+    event: STREAM_EVENTS.PROGRESS,
+    stage: STREAM_STAGES.PROVIDERS_STARTED,
+    status: 'running',
+    message: requestedSource === 'real' ? '正在收集市场信号' : '正在准备样本/回退证据',
+    metrics: { providerCount: requestedSource === 'real' ? 5 : 0, mode: requestedSource },
+  });
+
+  const loaded = await loadAnalyzeItemsWithProviders(requestedSource, [
+    { key: 'hackerNews', source: 'Hacker News', load: getHackerNewsOpportunities },
+    { key: 'appStore', source: 'Apple App Store', load: getAppStoreOpportunities },
+    { key: 'github', source: 'GitHub', load: getGitHubOpportunities },
+    { key: 'productHunt', source: 'Product Hunt', load: getProductHuntOpportunities },
+    { key: 'gdelt', source: 'GDELT', load: getGdeltOpportunities },
+  ], { onProgress, runId });
+
+  const fallback = buildRuleAnalyzeResponse({ query, profile, source: requestedSource, loaded });
+  const localMode = resolveAnalysisMode(loaded.source);
+  const canonical = attachJudgmentSchema(fallback, { query, profile, loadedSource: loaded.source, mode: localMode });
+  const normalizedEvidence = Array.isArray(canonical.evidence) ? canonical.evidence : [];
+  emit({
+    event: STREAM_EVENTS.PROGRESS,
+    stage: STREAM_STAGES.EVIDENCE_NORMALIZED,
+    status: 'completed',
+    message: '证据链已归一化',
+    metrics: {
+      evidenceCount: normalizedEvidence.length,
+      high: normalizedEvidence.filter((item) => item.strength === 'high').length,
+      medium: normalizedEvidence.filter((item) => item.strength === 'medium').length,
+      low: normalizedEvidence.filter((item) => item.strength === 'low').length,
+      sourceCount: new Set(normalizedEvidence.map((item) => item.source).filter(Boolean)).size,
+      isFallback: loaded.source === 'fallback',
+    },
+  });
+  emit({
+    event: STREAM_EVENTS.PROGRESS,
+    stage: STREAM_STAGES.CANONICAL_JUDGMENT,
+    status: 'completed',
+    message: '核心判断已完成',
+    metrics: {
+      verdict: canonical.verdict?.level || 'unknown',
+      confidence: canonical.verdict?.confidenceLevel || canonical.verdict?.confidence || 'low',
+      evidenceCount: normalizedEvidence.length,
+    },
+  });
+  emit({
+    event: STREAM_EVENTS.PROGRESS,
+    stage: STREAM_STAGES.EXPLANATION_GENERATION,
+    status: 'running',
+    message: '正在生成用户解释层',
+  });
+
+  const beforeDraftSnapshot = createCanonicalInvariantSnapshot(canonical);
+  const llmDraft = await buildLlmDraftForAnalyze({
+    canonicalResponse: canonical,
+    apiKey: process.env.OPENAI_API_KEY,
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+    endpointStyle: process.env.OPENAI_ENDPOINT_STYLE || 'responses',
+    timeoutMs: process.env.OPENAI_TIMEOUT_MS,
+  });
+
+  const explanationStatusMap = {
+    success: 'success',
+    not_configured: 'not_configured',
+    timeout: 'timeout',
+    malformed: 'malformed',
+    rejected: 'rejected',
+    error: 'error',
+  };
+  emit({
+    event: STREAM_EVENTS.PROGRESS,
+    stage: STREAM_STAGES.EXPLANATION_GENERATION,
+    status: llmDraft.status === 'success' ? 'completed' : 'partial',
+    message: llmDraft.status === 'success' ? '解释层已生成' : '解释层已降级为确定性文案',
+    metrics: {
+      explanationStatus: explanationStatusMap[llmDraft.status] || 'fallback',
+    },
+  });
+
+  const responsePayload = {
+    ...canonical,
+    llmDraft,
+    ...(llmDraft.status === 'success' ? { llmMode: 'draft_only' } : {}),
+  };
+  const afterDraftSnapshot = createCanonicalInvariantSnapshot(responsePayload);
+  if (!canonicalSnapshotsEqual(beforeDraftSnapshot, afterDraftSnapshot)) {
+    responsePayload.llmDraft = {
+      ...llmDraft,
+      status: 'rejected',
+      warnings: [...(llmDraft.warnings || []), 'LLM draft was rejected because canonical fields changed after draft generation.'],
+    };
+  }
+
+  emit({
+    event: STREAM_EVENTS.PROGRESS,
+    stage: STREAM_STAGES.REPORT_ASSEMBLED,
+    status: 'completed',
+    message: '验证报告已组装完成',
+  });
+
+  return {
+    runId,
+    result: responsePayload,
+  };
+}
+
 function paidModelDependsOnPayment(assumptions) {
   return /订阅|subscription|会员|月费|iap|内购|一次性|买断|付费|支付|收款|硬件销售/i.test(String(assumptions.businessModel || ''));
 }
@@ -1635,37 +1879,66 @@ function attachJudgmentSchema(response, { query, profile, loadedSource, mode }) 
 }
 
 app.post('/api/analyze', async (req, res) => {
-  const body = req.body || {};
-  const query = typeof body.query === 'string' ? body.query.trim() : '';
-  const requestedSource = body.source === 'real' ? 'real' : body.source === 'fallback' ? 'fallback' : 'mock';
-  const profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
-  const loaded = await loadAnalyzeItems(requestedSource);
-  const fallback = buildRuleAnalyzeResponse({ query, profile, source: requestedSource, loaded });
-  const localMode = resolveAnalysisMode(loaded.source);
-  const canonical = attachJudgmentSchema(fallback, { query, profile, loadedSource: loaded.source, mode: localMode });
-  const beforeDraftSnapshot = createCanonicalInvariantSnapshot(canonical);
-  const llmDraft = await buildLlmDraftForAnalyze({
-    canonicalResponse: canonical,
-    apiKey: process.env.OPENAI_API_KEY,
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-    baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-    endpointStyle: process.env.OPENAI_ENDPOINT_STYLE || 'responses',
-    timeoutMs: process.env.OPENAI_TIMEOUT_MS,
-  });
-  const responsePayload = {
-    ...canonical,
-    llmDraft,
-    ...(llmDraft.status === 'success' ? { llmMode: 'draft_only' } : {}),
+  const output = await runAnalyzeWorkflow({ body: req.body || {} });
+  res.json(output.result);
+});
+
+app.post('/api/analyze/stream', async (req, res) => {
+  const runId = `run-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  let closed = false;
+  let doneSent = false;
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const close = () => {
+    closed = true;
   };
-  const afterDraftSnapshot = createCanonicalInvariantSnapshot(responsePayload);
-  if (!canonicalSnapshotsEqual(beforeDraftSnapshot, afterDraftSnapshot)) {
-    responsePayload.llmDraft = {
-      ...llmDraft,
-      status: 'rejected',
-      warnings: [...(llmDraft.warnings || []), 'LLM draft was rejected because canonical fields changed after draft generation.'],
-    };
+  req.on('aborted', close);
+  res.on('close', close);
+
+  const send = (event, data) => {
+    if (closed) return;
+    const payload = JSON.stringify(data);
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${payload}\n\n`);
+  };
+
+  try {
+    const output = await runAnalyzeWorkflow({
+      body: req.body || {},
+      runId,
+      onProgress: (event) => {
+        if (closed) return;
+        send(event.event || STREAM_EVENTS.PROGRESS, {
+          ...event,
+          event: undefined,
+        });
+      },
+    });
+    if (closed) return;
+    if (!doneSent) {
+      doneSent = true;
+      send(STREAM_EVENTS.DONE, {
+        runId,
+        timestamp: new Date().toISOString(),
+        result: output.result,
+      });
+    }
+  } catch (error) {
+    if (closed) return;
+    send(STREAM_EVENTS.ERROR, {
+      runId,
+      stage: STREAM_STAGES.REPORT_ASSEMBLED,
+      code: 'stream_failed',
+      message: '验证流程中断，请稍后重试。',
+      detail: summarizeProviderError(error instanceof Error ? error.message : String(error || 'unknown error')),
+      timestamp: new Date().toISOString(),
+    });
+  } finally {
+    if (!closed) res.end();
   }
-  res.json(responsePayload);
 });
 
 function startServer(port = PORT) {
@@ -1705,5 +1978,7 @@ export {
   loadAnalyzeItemsWithProviders,
   parseQueryIntent,
   resolveAnalysisMode,
+  runAnalyzeWorkflow,
+  summarizeProviderError,
   startServer,
 };

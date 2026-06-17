@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { analyzeOpportunity } from '../../api/analyzeOpportunity';
+import { analyzeOpportunityStream } from '../../api/analyzeOpportunity';
 import { AppShell } from '../../components/layout/AppShell';
 import { TopNav } from '../../components/layout/TopNav';
 import { AnalyzeAdvancedOptions } from '../../components/analyze/AnalyzeAdvancedOptions';
-import { AnalyzeProgressPanel } from '../../components/analyze/AnalyzeProgressPanel';
 import { AnalyzeWorkbench } from '../../components/analyze/AnalyzeWorkbench';
 import { AnalyzeInputQualityGate } from '../../components/analyze/AnalyzeInputQualityGate';
 import { MarketMvpResearchProtocolPanel } from '../../components/analyze/MarketMvpResearchProtocolPanel';
 import { sourceModeHint, sourceModeLabel, sourceModeTitle } from '../../components/analyze/analyzePresentation';
 import type { AnalyzeProfile, AnalyzeResponse } from '../../types/analyze';
+import type { AnalyzeProgressEvent, AnalyzeProviderEvent, AnalyzeStreamStatus, AnalyzeUiStageKey } from '../../types/analyzeStream';
 import { buildMarketMvpResearchProtocol, type MarketMvpResearchProtocol } from '../../lib/marketMvpResearchProtocol';
 import { buildReportInputFromProfile, saveReport } from '../../lib/reportStorage';
 import styles from './AnalyzePage.module.css';
@@ -23,8 +23,6 @@ const DEFAULT_PROFILE: AnalyzeProfile = {
   budgetRange: '$0-$50',
   validationGoal: '需求是否存在',
 };
-
-const FLOW_STEPS = ['产品类型', '目标市场', '用户', '核心痛点', '商业模式'];
 
 type AssumptionStatus = 'identified' | 'missing' | 'profile';
 
@@ -45,6 +43,18 @@ type BackendJudgment = {
 type CompletedAnalysisInput = {
   query: string;
   profile: AnalyzeProfile;
+};
+
+type WorkflowRunStatus = 'idle' | 'preparing' | 'streaming' | 'completed' | 'failed' | 'cancelled' | 'compatibility_fallback';
+
+type WorkflowStageItem = {
+  key: AnalyzeUiStageKey;
+  label: string;
+  status: AnalyzeStreamStatus;
+  message: string;
+  startedAt?: number;
+  endedAt?: number;
+  metrics?: Record<string, unknown>;
 };
 
 type AnalyzeResponseWithJudgment = AnalyzeResponse & {
@@ -76,6 +86,35 @@ const INVALID_GATE_TOKENS = new Set([
   'inferred_hypothesis',
   '尚未确定',
 ]);
+
+const WORKFLOW_STAGE_SPECS: Array<{ key: AnalyzeUiStageKey; label: string }> = [
+  { key: 'goal_understanding', label: '理解验证目标' },
+  { key: 'condition_check', label: '检查进入条件' },
+  { key: 'signal_collection', label: '收集市场信号' },
+  { key: 'evidence_building', label: '构建证据链' },
+  { key: 'canonical_judgment', label: '执行进入判断' },
+  { key: 'report_generation', label: '生成验证报告' },
+];
+
+const STAGE_MAP: Record<string, AnalyzeUiStageKey> = {
+  input_received: 'goal_understanding',
+  brief_parsed: 'goal_understanding',
+  conditions_checked: 'condition_check',
+  providers_started: 'signal_collection',
+  evidence_normalized: 'evidence_building',
+  canonical_judgment: 'canonical_judgment',
+  explanation_generation: 'report_generation',
+  report_assembled: 'report_generation',
+};
+
+function initialWorkflowStages(): WorkflowStageItem[] {
+  return WORKFLOW_STAGE_SPECS.map((item) => ({
+    key: item.key,
+    label: item.label,
+    status: 'waiting',
+    message: '等待开始',
+  }));
+}
 
 const ASSUMPTION_EXAMPLES: Record<string, string> = {
   targetMarket: '目标市场：例如日本、东南亚、美国或 Global',
@@ -464,26 +503,6 @@ function AnalyzeHero({
   );
 }
 
-function ValidationStepper({ activeIndex }: { activeIndex: number }) {
-  return (
-    <nav className={styles.validationStepper} aria-label="市场 MVP 验证流程">
-      {FLOW_STEPS.map((step, index) => {
-        const stateClass = index < activeIndex
-          ? styles.validationStepDone
-          : index === activeIndex
-            ? styles.validationStepActive
-            : styles.validationStepIdle;
-        return (
-          <div key={step} className={`${styles.validationStep} ${stateClass}`}>
-            <span className={styles.validationStepIndex}>{index + 1}</span>
-            <strong>{step}</strong>
-          </div>
-        );
-      })}
-    </nav>
-  );
-}
-
 function SaveReportPanel({
   result,
   completedAnalysisInput,
@@ -626,6 +645,326 @@ function OpportunityValidationGate({
   );
 }
 
+function formatElapsed(startedAt?: number, endedAt?: number): string {
+  if (!startedAt) return '--';
+  const isLive = endedAt === undefined;
+  const diff = Math.max(0, (endedAt ?? Date.now()) - startedAt);
+  if (!isLive && diff < 100) return '瞬时完成';
+  if (diff < 1000) return `${diff}ms`;
+  return `${(diff / 1000).toFixed(1)}s`;
+}
+
+const WORKFLOW_RUN_STATUS_LABEL: Record<WorkflowRunStatus, string> = {
+  idle: '待机',
+  preparing: '准备中',
+  streaming: '执行中',
+  completed: '验证完成',
+  failed: '执行失败',
+  cancelled: '已取消',
+  compatibility_fallback: '兼容模式',
+};
+
+const STAGE_STATUS_LABEL: Record<string, string> = {
+  waiting: '等待执行',
+  running: '进行中',
+  completed: '已完成',
+  partial: '部分完成',
+  failed: '失败',
+};
+
+function buildProviderActivityMessage(event: AnalyzeProviderEvent): string {
+  const name = event.provider;
+  if (event.status === 'skipped') return `${name} · 已跳过`;
+  if (event.status === 'failed') return `${name} · 载入失败`;
+  const accepted = event.metrics?.accepted;
+  return `${name} · ${typeof accepted === 'number' ? `${accepted} 条证据` : '已载入'}`;
+}
+
+function BriefConditionsChecklist({
+  conditionStatus,
+}: {
+  conditionStatus: Array<{ key: string; label: string; filled: boolean }>;
+}) {
+  const filledCount = conditionStatus.filter((s) => s.filled).length;
+  const total = conditionStatus.length;
+  const allFilled = filledCount === total;
+  return (
+    <div className={styles.briefConditions}>
+      <div className={styles.briefConditionsHeader}>
+        <span>验证条件</span>
+        <strong>
+          {filledCount} / {total} · {allFilled ? '已满足完整验证要求' : `还需补齐 ${total - filledCount} 项`}
+        </strong>
+      </div>
+      <div className={styles.briefConditionsList}>
+        {conditionStatus.map((item) => (
+          <span
+            key={item.key}
+            className={`${styles.briefConditionChip} ${item.filled ? styles.briefConditionChipFilled : styles.briefConditionChipMissing}`}
+          >
+            <span className={styles.briefConditionDot}>{item.filled ? '✓' : '○'}</span>
+            {item.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AnalyzeWorkflowPanel({
+  runStatus,
+  stages,
+  providers,
+  compatibilityFallback,
+  activityLog,
+}: {
+  runStatus: WorkflowRunStatus;
+  stages: WorkflowStageItem[];
+  providers: AnalyzeProviderEvent[];
+  compatibilityFallback: boolean;
+  activityLog: string[];
+}) {
+  const [, setTick] = useState(0);
+  const [detailsExpanded, setDetailsExpanded] = useState(true);
+  const hasUserToggledRef = useRef(false);
+  const runningStage = stages.find((s) => s.status === 'running');
+
+  // Live timer for running stage elapsed
+  useEffect(() => {
+    if (!runningStage) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 200);
+    return () => window.clearInterval(id);
+  }, [runningStage?.key, runningStage?.status]);
+
+  // Auto expand/collapse on run status transitions
+  useEffect(() => {
+    if (runStatus === 'preparing') {
+      hasUserToggledRef.current = false;
+      setDetailsExpanded(true);
+      return;
+    }
+    if (!hasUserToggledRef.current) {
+      if (runStatus === 'completed') setDetailsExpanded(false);
+      if (runStatus === 'failed') setDetailsExpanded(true);
+    }
+  }, [runStatus]);
+
+  const handleToggleDetails = () => {
+    hasUserToggledRef.current = true;
+    setDetailsExpanded((v) => !v);
+  };
+
+  const completedCount = stages.filter(
+    (s) => s.status === 'completed' || s.status === 'partial' || s.status === 'failed',
+  ).length;
+  const hasPartialOrFailed = stages.some((s) => s.status === 'partial' || s.status === 'failed');
+  const isCompleted = runStatus === 'completed';
+  const isFailed = runStatus === 'failed';
+  const isActive = runStatus === 'preparing' || runStatus === 'streaming' || runStatus === 'compatibility_fallback';
+
+  // ── Idle state: compact waiting card ──
+  if (runStatus === 'idle') {
+    return (
+      <section className={styles.workflowIdleCard} aria-label="验证执行工作流">
+        <span className={styles.workflowIdleIcon}>◎</span>
+        <div className={styles.workflowIdleText}>
+          <strong>等待开始验证</strong>
+          <span>确认 Brief 后，系统将开始构建证据链和进入判断。</span>
+        </div>
+      </section>
+    );
+  }
+
+  // ── Completed state: collapsed summary ──
+  if (isCompleted && !detailsExpanded) {
+    const totalMs = (() => {
+      const mn = stages.reduce<number>((acc, s) => (s.startedAt && s.startedAt < acc ? s.startedAt : acc), Infinity);
+      const mx = stages.reduce<number>((acc, s) => (s.endedAt && s.endedAt > acc ? s.endedAt : acc), 0);
+      return mn !== Infinity && mx > 0 ? mx - mn : null;
+    })();
+    const totalStr = totalMs !== null
+      ? (totalMs < 1000 ? `${totalMs}ms` : `${(totalMs / 1000).toFixed(1)}s`)
+      : null;
+    const hints: string[] = [];
+    if (compatibilityFallback) hints.push('兼容模式');
+    if (hasPartialOrFailed) hints.push('部分降级');
+    return (
+      <section className={styles.workflowCompletedCard} aria-label="验证执行工作流">
+        <div className={styles.workflowCompletedSummary}>
+          <span className={styles.workflowCompletedIcon}>✓</span>
+          <div className={styles.workflowCompletedInfo}>
+            <strong>验证完成</strong>
+            <span>
+              {stages.length} / {stages.length} 个阶段
+              {totalStr ? ` · 总耗时 ${totalStr}` : ''}
+              {hints.length > 0 ? ` · ${hints.join(' · ')}` : ''}
+            </span>
+          </div>
+          <button type="button" className={styles.workflowToggleButton} onClick={handleToggleDetails}>
+            查看执行过程
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  // ── Cancelled state: compact card ──
+  if (runStatus === 'cancelled') {
+    return (
+      <section className={styles.workflowCancelledCard} aria-label="验证执行工作流">
+        <span className={styles.workflowCancelledIcon}>✕</span>
+        <div className={styles.workflowIdleText}>
+          <strong>已取消</strong>
+          <span>验证请求已被中止。</span>
+        </div>
+      </section>
+    );
+  }
+
+  // ── Full panel: active / failed / user-expanded completed ──
+  const currentStageName = runningStage?.label
+    ?? (isCompleted ? '验证已完成' : isFailed ? '验证执行失败' : '准备中');
+
+  const statusBarClass = [
+    styles.workflowStatusBar,
+    isActive && runningStage ? styles.workflowStatusBarStreaming : '',
+    isCompleted ? styles.workflowStatusBarCompleted : '',
+    isFailed ? styles.workflowStatusBarFailed : '',
+  ].filter(Boolean).join(' ');
+
+  const recentActivity = [...activityLog].reverse().slice(0, 5);
+
+  return (
+    <section className={styles.workflowPanel} aria-label="验证执行工作流">
+      <div className={styles.workflowHeader}>
+        <div>
+          <span className={styles.panelEyebrow}>Validation Workflow</span>
+          <h2>验证执行工作台</h2>
+        </div>
+        <div className={styles.workflowHeaderRight}>
+          {isCompleted ? (
+            <button type="button" className={styles.workflowToggleButton} onClick={handleToggleDetails}>
+              收起执行过程
+            </button>
+          ) : null}
+          <strong>{WORKFLOW_RUN_STATUS_LABEL[runStatus] ?? runStatus}</strong>
+        </div>
+      </div>
+
+      {/* Real-time top status bar */}
+      <div className={statusBarClass}>
+        <div className={styles.workflowStatusMain}>
+          <span className={styles.workflowStatusStageName}>{currentStageName}</span>
+          <span className={styles.workflowStatusMeta}>
+            已完成 {completedCount} / {stages.length} 个阶段
+          </span>
+        </div>
+        {runningStage?.startedAt ? (
+          <span className={styles.workflowStatusElapsed}>
+            当前已运行 {formatElapsed(runningStage.startedAt)}
+          </span>
+        ) : null}
+      </div>
+
+      {compatibilityFallback ? (
+        <div className={styles.workflowFallbackNotice}>
+          流式接口不可用，已切换兼容模式（普通请求）。
+        </div>
+      ) : null}
+
+      {/* Vertical stage list */}
+      <div className={styles.workflowStageListV}>
+        {stages.map((stage) => {
+          if (stage.status === 'running') {
+            return (
+              <article key={stage.key} className={styles.workflowStageRunningCard}>
+                <div className={styles.workflowStageRunningTop}>
+                  <strong>{stage.label}</strong>
+                  <span>进行中 · 已运行 {formatElapsed(stage.startedAt)}</span>
+                </div>
+                <p className={styles.workflowStageRunningMsg}>{stage.message}</p>
+                <div className={styles.workflowProgressTrack}>
+                  <div className={styles.workflowProgressFill} />
+                </div>
+              </article>
+            );
+          }
+
+          let iconClass = styles.workflowStageIconWaiting;
+          let colorClass = styles.workflowStageWaitingColor;
+          let iconContent = '○';
+          let metaText = STAGE_STATUS_LABEL[stage.status] ?? stage.status;
+
+          if (stage.status === 'completed') {
+            iconClass = styles.workflowStageIconCompleted;
+            colorClass = styles.workflowStageCompletedColor;
+            iconContent = '✓';
+            metaText = formatElapsed(stage.startedAt, stage.endedAt);
+          } else if (stage.status === 'partial') {
+            iconClass = styles.workflowStageIconPartial;
+            colorClass = styles.workflowStagePartialColor;
+            iconContent = '△';
+            metaText = `部分完成 · ${formatElapsed(stage.startedAt, stage.endedAt)}`;
+          } else if (stage.status === 'failed') {
+            iconClass = styles.workflowStageIconFailed;
+            colorClass = styles.workflowStageFailedColor;
+            iconContent = '✗';
+            metaText = `失败 · ${formatElapsed(stage.startedAt, stage.endedAt)}`;
+          }
+
+          const isTerminal = stage.status === 'completed' || stage.status === 'partial' || stage.status === 'failed';
+
+          return (
+            <article key={stage.key} className={`${styles.workflowStageCompactCard} ${colorClass}`}>
+              <span className={`${styles.workflowStageIcon} ${iconClass}`}>{iconContent}</span>
+              <span className={styles.workflowStageCompactLabel}>{stage.label}</span>
+              <small className={isTerminal ? styles.workflowStageCompactMetaHighlight : styles.workflowStageCompactMeta}>
+                {metaText}
+              </small>
+            </article>
+          );
+        })}
+      </div>
+
+      {/* Recent activity feed */}
+      {recentActivity.length > 0 ? (
+        <div className={styles.workflowRecentActivity}>
+          <span className={styles.workflowRecentActivityLabel}>最近动态</span>
+          {recentActivity.map((msg, i) => (
+            <div key={i} className={i === 0 ? styles.workflowActivityLatest : styles.workflowActivityItem}>
+              {msg}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Provider details */}
+      {providers.length > 0 ? (
+        <details className={styles.workflowProviders}>
+          <summary>提供方明细（{providers.length}）</summary>
+          <div className={styles.workflowProviderList}>
+            {providers.map((provider, index) => (
+              <article key={`${provider.provider}-${provider.timestamp}-${index}`} className={styles.workflowProviderItem}>
+                <strong>{provider.provider}</strong>
+                <span>{provider.status}</span>
+                <small>
+                  {provider.message}
+                  {provider.metrics && typeof provider.metrics.accepted === 'number'
+                    ? ` · ${provider.metrics.accepted} 条证据`
+                    : ''}
+                  {provider.metrics && typeof provider.metrics.elapsedMs === 'number'
+                    ? ` · ${provider.metrics.elapsedMs}ms`
+                    : ''}
+                </small>
+              </article>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
 function AssumptionExtractor({
   assumptions,
   missingCritical,
@@ -715,7 +1054,6 @@ export function AnalyzePage() {
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [activeStep, setActiveStep] = useState(0);
   const [inputQuality, setInputQuality] = useState<{ missing: string[]; query: string } | null>(null);
   const [protocol, setProtocol] = useState<MarketMvpResearchProtocol | null>(null);
   const [savedReportId, setSavedReportId] = useState<string | null>(null);
@@ -723,10 +1061,19 @@ export function AnalyzePage() {
   const [analysisRunSerial, setAnalysisRunSerial] = useState(0);
   const [gateConditions, setGateConditions] = useState<ValidationGateConditions>(() => extractGateConditionsFromBrief(queryFromUrl, targetMarketFromUrl, productTypeFromUrl));
   const [opportunityGateActive, setOpportunityGateActive] = useState(isOpportunityEntry);
+  const [workflowRunStatus, setWorkflowRunStatus] = useState<WorkflowRunStatus>('idle');
+  const [workflowStages, setWorkflowStages] = useState<WorkflowStageItem[]>(() => initialWorkflowStages());
+  const [workflowProviders, setWorkflowProviders] = useState<AnalyzeProviderEvent[]>([]);
+  const [workflowCompatibilityFallback, setWorkflowCompatibilityFallback] = useState(false);
+  const [workflowActivityLog, setWorkflowActivityLog] = useState<string[]>([]);
   const verdictRef = useRef<HTMLElement | null>(null);
   const lastAutoScrolledResultRef = useRef<string | null>(null);
   const handledAutoRunRef = useRef<string | null>(null);
   const analysisRunSerialRef = useRef(0);
+  const activeRunIdRef = useRef<string | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const workflowPanelRef = useRef<HTMLDivElement | null>(null);
+  const workflowScrolledRef = useRef(false);
 
   const scrollToVerdictResult = useCallback((autoScrollKey: string) => {
     let attempts = 0;
@@ -769,13 +1116,18 @@ export function AnalyzePage() {
 
   useEffect(() => { setSource(getSource()); }, []);
   useEffect(() => { window.sessionStorage.setItem(ANALYZE_QUERY_KEY, query); }, [query]);
-  useEffect(() => {
-    if (!analyzing) return;
-    setActiveStep(0);
-    const timer = window.setInterval(() => setActiveStep((current) => Math.min(current + 1, 4)), 650);
-    return () => window.clearInterval(timer);
-  }, [analyzing]);
 
+  useEffect(() => {
+    if (workflowRunStatus === 'idle') {
+      workflowScrolledRef.current = false;
+      return;
+    }
+    if (!workflowScrolledRef.current && workflowPanelRef.current) {
+      workflowScrolledRef.current = true;
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      workflowPanelRef.current.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    }
+  }, [workflowRunStatus]);
   const handleQueryChange = (value: string) => {
     setQuery(value);
     setInputQuality(null);
@@ -834,10 +1186,12 @@ export function AnalyzePage() {
       setCompletedAnalysisInput(null);
       setError(null);
       setAnalyzing(false);
-      setActiveStep(0);
       return;
     }
     setError(null);
+    const previousController = streamAbortRef.current;
+    activeRunIdRef.current = null;
+    previousController?.abort();
     const nextAnalysisRunSerial = analysisRunSerialRef.current + 1;
     analysisRunSerialRef.current = nextAnalysisRunSerial;
     setAnalysisRunSerial(nextAnalysisRunSerial);
@@ -851,12 +1205,111 @@ export function AnalyzePage() {
     setCompletedAnalysisInput(null);
     setInputQuality(null);
     setAnalyzing(true);
+    setWorkflowRunStatus('preparing');
+    setWorkflowCompatibilityFallback(false);
+    setWorkflowStages(initialWorkflowStages());
+    setWorkflowProviders([]);
+    setWorkflowActivityLog([]);
+    workflowScrolledRef.current = false;
+    const requestRunId = `client-${Date.now()}-${nextAnalysisRunSerial}`;
+    activeRunIdRef.current = requestRunId;
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    const updateStage = (stageKey: AnalyzeUiStageKey, nextStatus: AnalyzeStreamStatus, message: string, metrics?: Record<string, unknown>) => {
+      if (activeRunIdRef.current !== requestRunId) return;
+      setWorkflowStages((current) => current.map((stage) => {
+        if (stage.key !== stageKey) return stage;
+        const now = Date.now();
+        return {
+          ...stage,
+          status: nextStatus,
+          message: message || stage.message,
+          metrics: metrics || stage.metrics,
+          startedAt: stage.startedAt ?? now,
+          endedAt: nextStatus === 'running' ? undefined : now,
+        };
+      }));
+    };
     try {
-      const response = await analyzeOpportunity({ query: normalizedQuery, source: requestedSource, profile: requestedProfile });
+      const response = await analyzeOpportunityStream(
+        { query: normalizedQuery, source: requestedSource, profile: requestedProfile },
+        {
+          onProgress: (event: AnalyzeProgressEvent) => {
+            if (activeRunIdRef.current !== requestRunId) return;
+            setWorkflowRunStatus('streaming');
+            if (event.message) {
+              setWorkflowActivityLog((log) => [...log.slice(-14), event.message].filter(Boolean));
+            }
+            const mapped = STAGE_MAP[event.stage];
+            if (!mapped) return;
+            if (event.stage === 'explanation_generation' && event.status === 'running') {
+              updateStage(mapped, 'running', event.message, event.metrics);
+              return;
+            }
+            if (event.stage === 'explanation_generation' && event.status !== 'running') {
+              const explanationStatus = String(event.metrics?.explanationStatus || '');
+              const isPartial = ['timeout', 'error', 'malformed', 'rejected', 'not_configured'].includes(explanationStatus);
+              updateStage(mapped, isPartial ? 'partial' : 'completed', isPartial ? '解释层已降级为确定性报告' : event.message, event.metrics);
+              return;
+            }
+            updateStage(
+              mapped,
+              event.status === 'running' ? 'running' : event.status === 'partial' ? 'partial' : event.status === 'failed' ? 'failed' : 'completed',
+              event.message,
+              event.metrics,
+            );
+          },
+          onProvider: (event: AnalyzeProviderEvent) => {
+            if (activeRunIdRef.current !== requestRunId) return;
+            setWorkflowProviders((current) => [...current, event]);
+            const providerMsg = buildProviderActivityMessage(event);
+            setWorkflowActivityLog((log) => [...log.slice(-14), providerMsg]);
+            if (event.status === 'failed' || event.status === 'skipped') {
+              updateStage('signal_collection', 'partial', '市场信号收集部分降级');
+            } else {
+              updateStage('signal_collection', 'running', '正在收集市场信号');
+            }
+          },
+          onDone: () => {
+            if (activeRunIdRef.current !== requestRunId) return;
+            setWorkflowStages((current) => current.map((stage) => {
+              if (stage.status === 'failed' || stage.status === 'partial' || stage.status === 'completed') return stage;
+              if (stage.status === 'running') {
+                return { ...stage, status: 'completed', endedAt: Date.now(), message: stage.message || '已完成' };
+              }
+              return stage;
+            }));
+            setWorkflowRunStatus((current) => (current === 'failed' || current === 'cancelled' ? current : 'completed'));
+          },
+          onError: (event) => {
+            if (activeRunIdRef.current !== requestRunId) return;
+            setWorkflowRunStatus('failed');
+            const mapped = event.stage ? STAGE_MAP[String(event.stage)] : undefined;
+            if (mapped) updateStage(mapped, 'failed', event.message);
+          },
+          onCompatibilityFallback: () => {
+            if (activeRunIdRef.current !== requestRunId) return;
+            setWorkflowCompatibilityFallback(true);
+            setWorkflowRunStatus('compatibility_fallback');
+            setWorkflowStages((current) => current.map((stage) => {
+              if (stage.status === 'waiting' || stage.status === 'running') {
+                return {
+                  ...stage,
+                  status: 'partial',
+                  message: '兼容模式执行，无法提供完整实时阶段',
+                  endedAt: Date.now(),
+                };
+              }
+              return stage;
+            }));
+          },
+        },
+        controller.signal,
+      );
+      if (activeRunIdRef.current !== requestRunId) return;
       const normalizedResponse = normalizeViewResult(response);
       setSource(response.source);
       setResult(normalizedResponse);
-      setActiveStep(5);
       if (normalizedResponse) {
         setCompletedAnalysisInput({
           query: normalizedQuery,
@@ -871,11 +1324,21 @@ export function AnalyzePage() {
         scrollToVerdictResult(`${nextAnalysisRunSerial}:${resultKey}`);
       }
     } catch (requestError) {
+      if (activeRunIdRef.current !== requestRunId) return;
+      if (controller.signal.aborted) {
+        if (activeRunIdRef.current === requestRunId) setWorkflowRunStatus('cancelled');
+        return;
+      }
       console.warn('Analyze request failed', requestError);
       setProtocol(null);
       setError('分析服务未连接。请稍后重试，或切换样本模式查看验证结构。');
+      setWorkflowRunStatus('failed');
     } finally {
-      setAnalyzing(false);
+      if (activeRunIdRef.current === requestRunId) {
+        if (streamAbortRef.current === controller) streamAbortRef.current = null;
+        activeRunIdRef.current = null;
+        setAnalyzing(false);
+      }
     }
   }, [profile, query, scrollToVerdictResult, source]);
 
@@ -915,7 +1378,6 @@ export function AnalyzePage() {
     setInputQuality(null);
     setError(null);
     setAnalyzing(false);
-    setActiveStep(0);
     window.sessionStorage.setItem(ANALYZE_QUERY_KEY, autoBrief);
     if (nextMissing.length === 0) {
       const mergedBrief = mergeGateConditionsIntoBrief(autoBrief, nextGateConditions);
@@ -930,6 +1392,10 @@ export function AnalyzePage() {
   }, [analyzing, autoRunKey, profile, productTypeFromUrl, queryFromUrl, runAnalyze, targetMarketFromUrl]);
 
   const resetAll = () => {
+    const currentController = streamAbortRef.current;
+    activeRunIdRef.current = null;
+    currentController?.abort();
+    streamAbortRef.current = null;
     setQuery('');
     setResult(null);
     setSavedReportId(null);
@@ -937,7 +1403,6 @@ export function AnalyzePage() {
     setError(null);
     setInputQuality(null);
     setProtocol(null);
-    setActiveStep(0);
     setGateConditions({
       productType: '',
       targetMarket: '',
@@ -946,11 +1411,23 @@ export function AnalyzePage() {
       businessModel: '',
     });
     setOpportunityGateActive(false);
+    setWorkflowRunStatus('idle');
+    setWorkflowStages(initialWorkflowStages());
+    setWorkflowProviders([]);
+    setWorkflowCompatibilityFallback(false);
+    setWorkflowActivityLog([]);
+    workflowScrolledRef.current = false;
     lastAutoScrolledResultRef.current = null;
     window.sessionStorage.removeItem(ANALYZE_QUERY_KEY);
   };
 
   const viewResult = useMemo(() => normalizeViewResult(result), [result]);
+  useEffect(() => () => {
+    const controller = streamAbortRef.current;
+    activeRunIdRef.current = null;
+    controller?.abort();
+    streamAbortRef.current = null;
+  }, []);
   useEffect(() => {
     if (!viewResult || analyzing) return;
     const resultKey = `${viewResult.analysisId || 'analysis'}:${viewResult.generatedAt || 'generated'}`;
@@ -970,14 +1447,33 @@ export function AnalyzePage() {
     [assumptions],
   );
   const hasBlockingError = Boolean(error && !viewResult);
-  const flowActiveIndex = useMemo(() => {
-    if (viewResult) return 4;
-    if (analyzing) return 3;
-    if (inputQuality) return 2;
-    if (query.trim()) return 1;
-    return 0;
-  }, [analyzing, inputQuality, query, viewResult]);
   const radarSource = new URLSearchParams(window.location.search).has('source') ? source : 'real';
+
+  const briefConditionStatus = useMemo(() => {
+    if (opportunityGateActive) {
+      return REQUIRED_GATE_FIELDS.map(({ key, label }) => ({
+        key,
+        label,
+        filled: isExplicitGateValue(gateConditions[key]),
+      }));
+    }
+    if (!query.trim()) {
+      return REQUIRED_GATE_FIELDS.map(({ key, label }) => ({ key, label, filled: false }));
+    }
+    const text = query.trim();
+    const fieldFilled: Record<GateFieldKey, boolean> = {
+      productType: /AI|SaaS|工具|App|订阅|游戏|短剧|支付|机器人|机器狗|硬件|插件|平台|软件/i.test(text),
+      targetMarket: /日本|韩国|台湾|东南亚|美国|欧美|巴西|中东|土耳其|印度|印尼|泰国|越南|Global|Japan|US|SEA|Europe/i.test(text),
+      targetUser: /用户|开发者|学生|老师|团队|企业|卖家|创作者|运营|设计师|家长|老人|儿童|独居|B端|C端/i.test(text),
+      painPoint: /用于|帮助|解决|提高|降低|自动|生成|管理|陪伴|学习|办公|营销|获客|养老|设计|素材|效率/i.test(text),
+      businessModel: /订阅|付费|广告|佣金|一次性|会员|充值|收款|支付|价格|客单价|售价|月费/i.test(text),
+    };
+    return REQUIRED_GATE_FIELDS.map(({ key, label }) => ({
+      key,
+      label,
+      filled: fieldFilled[key],
+    }));
+  }, [gateConditions, opportunityGateActive, query]);
   const handleGateChange = (key: GateFieldKey, value: string) => {
     setGateConditions((current) => ({ ...current, [key]: value }));
   };
@@ -1008,6 +1504,7 @@ export function AnalyzePage() {
     <AppShell>
       <div className={styles.page}>
         <TopNav />
+        {/* 1. Hero — 总体状态摘要 */}
         <AnalyzeHero
           source={displaySource}
           qualityScore={currentQuality.score}
@@ -1016,7 +1513,7 @@ export function AnalyzePage() {
           hasError={hasBlockingError}
           statusOverride={validationOsStatus}
         />
-        <ValidationStepper activeIndex={flowActiveIndex} />
+        {/* 2. Brief 工作台 */}
         <AnalyzeWorkbench
           query={query}
           source={source}
@@ -1027,6 +1524,11 @@ export function AnalyzePage() {
           onSubmit={handleSubmit}
           onReset={resetAll}
         />
+        {/* 3. 验证条件 checklist（紧凑，仅在非 gate 激活时）*/}
+        {!opportunityGateActive ? (
+          <BriefConditionsChecklist conditionStatus={briefConditionStatus} />
+        ) : null}
+        {/* 4. 机会验证条件门（条件不足时展开编辑）*/}
         {opportunityGateActive ? (
           <OpportunityValidationGate
             conditions={gateConditions}
@@ -1034,6 +1536,17 @@ export function AnalyzePage() {
             missingLabels={missingGateLabels}
           />
         ) : null}
+        {/* 5. 唯一真实验证执行工作台 */}
+        <div ref={workflowPanelRef} style={{ scrollMarginTop: '72px' }}>
+          <AnalyzeWorkflowPanel
+            runStatus={workflowRunStatus}
+            stages={workflowStages}
+            providers={workflowProviders}
+            compatibilityFallback={workflowCompatibilityFallback}
+            activityLog={workflowActivityLog}
+          />
+        </div>
+        {/* 6. 系统识别的判断要素 */}
         <AssumptionExtractor
           assumptions={assumptions}
           missingCritical={missingCritical}
@@ -1044,7 +1557,7 @@ export function AnalyzePage() {
         {inputQuality ? (
           <AnalyzeInputQualityGate missing={inputQuality.missing} query={inputQuality.query} onExampleApply={applyQualityExample} />
         ) : null}
-        {analyzing ? <AnalyzeProgressPanel activeIndex={activeStep} done={false} steps={viewResult?.steps} /> : null}
+        {/* 7. Verdict 与完整报告 */}
         {protocol ? (
           <MarketMvpResearchProtocolPanel
             protocol={protocol}

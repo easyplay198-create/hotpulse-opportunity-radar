@@ -10,12 +10,15 @@ import {
   loadAnalyzeItemsWithProviders,
   parseQueryIntent,
   resolveAnalysisMode,
+  runAnalyzeWorkflow,
+  summarizeProviderError,
 } from '../index.js';
 import {
   buildCorePayload,
   buildDeterministicPresentationFallback,
   buildLlmDraftForAnalyze,
 } from '../analyze/llmOrchestrator.js';
+import { STREAM_EVENTS } from '../analyze/streamProtocol.js';
 
 function canonicalFixture(overrides = {}) {
   const canonical = {
@@ -272,7 +275,7 @@ test('fulfilled provider error is reported as error, not skippedReason', async (
   const canonical = canonicalFromLoaded(loaded);
 
   assert.equal(loaded.providerStats.hackerNews.ok, false);
-  assert.equal(loaded.providerStats.hackerNews.error, 'rate limited');
+  assert.equal(loaded.providerStats.hackerNews.error, 'provider rate limited');
   assert.equal('skippedReason' in loaded.providerStats.hackerNews, false);
   assert.equal(canonical.evidence.some((item) => item.source === 'Hacker News'), false);
 });
@@ -284,7 +287,7 @@ test('unconfigured provider is reported as skippedReason, not error', async () =
   }));
 
   assert.equal(loaded.providerStats.productHunt.ok, false);
-  assert.equal(loaded.providerStats.productHunt.skippedReason, 'token not configured');
+  assert.equal(loaded.providerStats.productHunt.skippedReason, 'provider not configured');
   assert.equal('error' in loaded.providerStats.productHunt, false);
 });
 
@@ -642,4 +645,179 @@ test('offline API smoke returns mock analysis with deterministic llmDraft when k
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;
   }
+});
+
+test('plain /api/analyze remains compatible', async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = '';
+  const server = app.listen(0);
+  await once(server, 'listening');
+  const { port } = server.address();
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'mock', query: 'AI 工具出海日本' }),
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.ok(payload.analysisId);
+    assert.ok(payload.recommendation);
+    assert.ok(payload.judgment);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test('runAnalyzeWorkflow emits ordered progress and returns result', async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = '';
+  const events = [];
+  const output = await runAnalyzeWorkflow({
+    body: { source: 'mock', query: 'AI 工具出海日本，面向独立开发者，订阅' },
+    runId: 'test-run',
+    onProgress: (event) => events.push(event),
+  });
+  const progressStages = events
+    .filter((event) => event.event === STREAM_EVENTS.PROGRESS)
+    .map((event) => event.stage);
+  assert.deepEqual(progressStages.slice(0, 3), [
+    'input_received',
+    'brief_parsed',
+    'conditions_checked',
+  ]);
+  assert.ok(progressStages.includes('evidence_normalized'));
+  assert.ok(progressStages.includes('canonical_judgment'));
+  assert.ok(progressStages.includes('report_assembled'));
+  assert.ok(output.result);
+  assert.ok(output.result.recommendation);
+  const explanation = events.find((event) => event.stage === 'explanation_generation' && event.event === STREAM_EVENTS.PROGRESS && event.status !== 'running');
+  assert.ok(explanation);
+  assert.equal(explanation.status, 'partial');
+  if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+  else process.env.OPENAI_API_KEY = previousKey;
+});
+
+test('stream endpoint emits parseable events and one done', async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = '';
+  const server = app.listen(0);
+  await once(server, 'listening');
+  const { port } = server.address();
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/analyze/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'mock', query: 'AI 工具出海日本，面向独立开发者，订阅' }),
+    });
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    const chunks = text.split('\n\n').filter(Boolean);
+    const events = chunks.map((chunk) => {
+      const eventLine = chunk.split('\n').find((line) => line.startsWith('event:'));
+      const dataLine = chunk.split('\n').find((line) => line.startsWith('data:'));
+      assert.ok(eventLine);
+      assert.ok(dataLine);
+      return {
+        event: eventLine.slice(6).trim(),
+        data: JSON.parse(dataLine.slice(5).trim()),
+      };
+    });
+    const doneEvents = events.filter((item) => item.event === 'done');
+    assert.equal(doneEvents.length, 1);
+    assert.ok(doneEvents[0].data.result);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test('stream abort does not produce done event', async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = '';
+  const server = app.listen(0);
+  await once(server, 'listening');
+  const { port } = server.address();
+  const controller = new AbortController();
+  const chunks = [];
+  try {
+    const pending = fetch(`http://127.0.0.1:${port}/api/analyze/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'mock', query: 'AI 工具出海日本，面向独立开发者，订阅' }),
+      signal: controller.signal,
+    });
+    controller.abort();
+    try {
+      const response = await pending;
+      const text = await response.text();
+      chunks.push(text);
+    } catch {}
+    assert.equal(chunks.join('').includes('event: done'), false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test('provider events are emitted before slow provider completes', async () => {
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  let slowCompleted = false;
+  let fastSeenBeforeSlow = false;
+  const providers = analyzeTestProviders({
+    hackerNews: async () => {
+      await delay(15);
+      return [providerFixtureItem({ id: 'hn-fast', source: 'Hacker News' })];
+    },
+    appStore: async () => {
+      await delay(90);
+      slowCompleted = true;
+      return [providerFixtureItem({ id: 'app-slow', source: 'Apple App Store', type: 'app_store_signal' })];
+    },
+  });
+  const events = [];
+  await loadAnalyzeItemsWithProviders('real', providers, {
+    runId: 'provider-realtime',
+    onProgress: (event) => {
+      events.push({ ...event, t: Date.now() });
+      if (event.event === STREAM_EVENTS.PROVIDER && event.provider === 'hackerNews' && event.status === 'completed') {
+        fastSeenBeforeSlow = !slowCompleted;
+      }
+    },
+  });
+  const providerCompleted = events.filter((event) => event.event === STREAM_EVENTS.PROVIDER && event.status === 'completed');
+  const providersStageDone = events.find((event) => event.event === STREAM_EVENTS.PROGRESS && event.stage === 'providers_started' && event.status !== 'running');
+  assert.ok(providerCompleted.length >= 1);
+  assert.ok(providersStageDone);
+  assert.equal(fastSeenBeforeSlow, true);
+  assert.equal(slowCompleted, true);
+});
+
+test('provider partial status is produced with stub providers only', async () => {
+  const events = [];
+  const loaded = await loadAnalyzeItemsWithProviders('real', analyzeTestProviders({
+    hackerNews: async () => [providerFixtureItem({ id: 'hn-ok', source: 'Hacker News' })],
+    appStore: async () => { throw new Error('stub failure'); },
+  }), {
+    runId: 'provider-partial-stub',
+    onProgress: (event) => events.push(event),
+  });
+  assert.equal(loaded.source, 'real');
+  assert.ok(loaded.items.length >= 1);
+  assert.equal(loaded.providerStats.hackerNews.ok, true);
+  assert.equal(loaded.providerStats.appStore.ok, false);
+  const providersStageDone = events.find((event) => event.event === STREAM_EVENTS.PROGRESS && event.stage === 'providers_started' && event.status !== 'running');
+  assert.ok(providersStageDone);
+  assert.equal(providersStageDone.status, 'partial');
+  assert.ok(Number(providersStageDone.metrics?.completedCount) >= 1);
+  assert.ok(Number(providersStageDone.metrics?.failedCount) >= 1);
+});
+
+test('error summary is redacted', () => {
+  const summary = summarizeProviderError('Authorization: Bearer sk-abc123456789 token=abc123&x=1 api_key=test-key');
+  assert.equal(/sk-|Bearer|Authorization|api_key|token=abc123/i.test(summary), false);
 });
