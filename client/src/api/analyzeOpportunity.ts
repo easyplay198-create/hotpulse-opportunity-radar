@@ -5,6 +5,17 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function getApiBase() {
+  const base = import.meta.env.VITE_API_BASE?.trim();
+  if (!base) return '';
+  return base.replace(/\/+$/, '');
+}
+
+function buildAnalyzeUrl(path: '/api/analyze' | '/api/analyze/stream') {
+  const apiBase = getApiBase();
+  return `${apiBase}${path}`;
+}
+
 function normalizeAnalyzeResponse(raw: unknown): AnalyzeResponse {
   const data = (raw && typeof raw === 'object' ? raw : {}) as Partial<AnalyzeResponse> & Record<string, unknown>;
   const recommendation = data.recommendation && typeof data.recommendation === 'object' ? data.recommendation as AnalyzeResponse['recommendation'] : {
@@ -63,7 +74,7 @@ function normalizeAnalyzeResponse(raw: unknown): AnalyzeResponse {
 }
 
 export async function analyzeOpportunity(input: AnalyzeRequest, signal?: AbortSignal): Promise<AnalyzeResponse> {
-  const response = await fetch('/api/analyze', {
+  const response = await fetch(buildAnalyzeUrl('/api/analyze'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -136,7 +147,7 @@ export async function analyzeOpportunityStream(
 
   let response: Response;
   try {
-    response = await fetch('/api/analyze/stream', {
+    response = await fetch(buildAnalyzeUrl('/api/analyze/stream'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),

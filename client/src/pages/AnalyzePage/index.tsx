@@ -471,10 +471,10 @@ function AnalyzeHero({
   return (
     <section className={styles.analyzeHero}>
       <div className={styles.heroCopy}>
-        <span className={styles.heroEyebrow}>MARKET MVP VALIDATION WORKBENCH</span>
-        <h1>把一个出海方向，拆成可验证的市场判断</h1>
+        <span className={styles.heroEyebrow}>出海验证工具</span>
+        <h1>先验证，再投入</h1>
         <p>
-          输入产品、目标市场、用户和商业假设，HotPulse 会先检查输入质量，再拆解风险、证据和下一步验证动作。
+          输入产品、目标市场、用户和商业假设，系统会评估证据、风险与下一步验证动作。
         </p>
       </div>
       <aside className={styles.heroStatusCard} aria-label="验证工作台状态">
