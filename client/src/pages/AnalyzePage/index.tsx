@@ -4,13 +4,26 @@ import { AppShell } from '../../components/layout/AppShell';
 import { TopNav } from '../../components/layout/TopNav';
 import { AnalyzeAdvancedOptions } from '../../components/analyze/AnalyzeAdvancedOptions';
 import { AnalyzeWorkbench } from '../../components/analyze/AnalyzeWorkbench';
-import { AnalyzeInputQualityGate } from '../../components/analyze/AnalyzeInputQualityGate';
 import { MarketMvpResearchProtocolPanel } from '../../components/analyze/MarketMvpResearchProtocolPanel';
 import { sourceModeHint, sourceModeLabel, sourceModeTitle } from '../../components/analyze/analyzePresentation';
 import type { AnalyzeProfile, AnalyzeResponse } from '../../types/analyze';
 import type { AnalyzeProgressEvent, AnalyzeProviderEvent, AnalyzeStreamStatus, AnalyzeUiStageKey } from '../../types/analyzeStream';
 import { buildMarketMvpResearchProtocol, type MarketMvpResearchProtocol } from '../../lib/marketMvpResearchProtocol';
 import { buildReportInputFromProfile, saveReport } from '../../lib/reportStorage';
+import {
+  applyFieldAnswer,
+  clarificationStatusLabel,
+  countExplicitFields,
+  hasAllExplicit,
+  mergeStructuredBrief,
+  parseClarificationResult,
+  toStructuredConditions,
+  validateClarificationAnswer,
+  type ClarificationParseSeed,
+  type ClarificationFieldKey,
+  type ClarificationFieldState,
+  type ClarificationQuestion,
+} from '../../lib/analyzeClarification';
 import styles from './AnalyzePage.module.css';
 
 type AnalyzeSource = 'real' | 'mock' | 'fallback';
@@ -65,7 +78,30 @@ type AnalyzeResponseWithJudgment = AnalyzeResponse & {
 
 type GateFieldKey = 'productType' | 'targetMarket' | 'targetUser' | 'painPoint' | 'businessModel';
 
-type ValidationGateConditions = Record<GateFieldKey, string>;
+type ClarificationPhase = 'idle' | 'questioning' | 'confirm';
+type ClarificationAnswerMode = 'option' | 'custom' | 'undecided' | null;
+
+type ClarificationSession = {
+  sourceQuery: string;
+  phase: ClarificationPhase;
+  fields: Record<GateFieldKey, ClarificationFieldState>;
+  questions: ClarificationQuestion[];
+  questionIndex: number;
+  answeredFields: Partial<Record<GateFieldKey, boolean>>;
+  answerModeByField: Partial<Record<GateFieldKey, ClarificationAnswerMode>>;
+  customDraftByField: Partial<Record<GateFieldKey, string>>;
+  customErrorByField: Partial<Record<GateFieldKey, string>>;
+  customSavedByField: Partial<Record<GateFieldKey, boolean>>;
+};
+
+type ClarificationDerivedProgress = {
+  explicitCount: number;
+  unresolvedCount: number;
+  answeredQuestionCount: number;
+  questionTotal: number;
+  currentQuestionNumber: number;
+  canStartAnalyze: boolean;
+};
 
 const REQUIRED_GATE_FIELDS: Array<{ key: GateFieldKey; label: string }> = [
   { key: 'productType', label: '产品类型' },
@@ -75,17 +111,29 @@ const REQUIRED_GATE_FIELDS: Array<{ key: GateFieldKey; label: string }> = [
   { key: 'businessModel', label: '商业模式' },
 ];
 
+function initAnsweredFields(fields: Record<GateFieldKey, ClarificationFieldState>) {
+  return REQUIRED_GATE_FIELDS.reduce<Partial<Record<GateFieldKey, boolean>>>((acc, item) => {
+    acc[item.key] = fields[item.key].status === 'explicit';
+    return acc;
+  }, {});
+}
+
+function initAnswerModes(fields: Record<GateFieldKey, ClarificationFieldState>) {
+  return REQUIRED_GATE_FIELDS.reduce<Partial<Record<GateFieldKey, ClarificationAnswerMode>>>((acc, item) => {
+    const field = fields[item.key];
+    if (field.value === '暂未确定') {
+      acc[item.key] = 'undecided';
+    } else if (field.status === 'explicit') {
+      acc[item.key] = 'option';
+    } else {
+      acc[item.key] = null;
+    }
+    return acc;
+  }, {});
+}
+
 const PENDING_VALUE = '待补充';
 const CRITICAL_ASSUMPTION_KEYS = ['targetMarket', 'targetUser', 'painPoint', 'businessModel', 'acquisitionChannel', 'platformForm'];
-const INVALID_GATE_TOKENS = new Set([
-  '',
-  '待补充',
-  '待确认',
-  '未明确',
-  '未知',
-  'inferred_hypothesis',
-  '尚未确定',
-]);
 
 const WORKFLOW_STAGE_SPECS: Array<{ key: AnalyzeUiStageKey; label: string }> = [
   { key: 'goal_understanding', label: '理解验证目标' },
@@ -124,53 +172,6 @@ const ASSUMPTION_EXAMPLES: Record<string, string> = {
   acquisitionChannel: '获客渠道：例如 SEO、社群、投放、应用商店或 Product Hunt',
   platformForm: '产品形态：例如 Web SaaS、移动 App、浏览器插件、游戏或硬件',
 };
-
-function normalizeGateValue(value: string) {
-  return value.replace(/\s+/g, ' ').trim();
-}
-
-function isExplicitGateValue(value: string) {
-  const normalized = normalizeGateValue(value);
-  if (!normalized) return false;
-  if (INVALID_GATE_TOKENS.has(normalized)) return false;
-  if (/例如|示例|占位/.test(normalized)) return false;
-  return true;
-}
-
-function extractLabeledValue(query: string, label: string) {
-  const pattern = new RegExp(`${label}[：:]\\s*([^\\n\\r，。]{1,80})`);
-  const matched = query.match(pattern)?.[1];
-  return normalizeGateValue(matched ?? '');
-}
-
-function extractGateConditionsFromBrief(query: string, fallbackMarket: string, fallbackProductType: string): ValidationGateConditions {
-  const productType = extractLabeledValue(query, '产品类型') || normalizeGateValue(fallbackProductType);
-  const targetMarket = extractLabeledValue(query, '目标市场') || normalizeGateValue(fallbackMarket);
-  const targetUser = extractLabeledValue(query, '目标用户');
-  const painPoint = extractLabeledValue(query, '核心痛点');
-  const businessModel = extractLabeledValue(query, '商业模式');
-  return { productType, targetMarket, targetUser, painPoint, businessModel };
-}
-
-function mergeGateConditionsIntoBrief(baseQuery: string, conditions: ValidationGateConditions) {
-  const strippedBase = baseQuery
-    .replace(/(^|\n)\s*产品类型[：:].*/g, '')
-    .replace(/(^|\n)\s*目标市场[：:].*/g, '')
-    .replace(/(^|\n)\s*目标用户[：:].*/g, '')
-    .replace(/(^|\n)\s*核心痛点[：:].*/g, '')
-    .replace(/(^|\n)\s*商业模式[：:].*/g, '')
-    .trim();
-  const header = [
-    `产品类型：${conditions.productType}`,
-    `目标市场：${conditions.targetMarket}`,
-    `目标用户：${conditions.targetUser}`,
-    `核心痛点：${conditions.painPoint}`,
-    `商业模式：${conditions.businessModel}`,
-  ].join('\n');
-  return strippedBase
-    ? `${header}\n\n机会信号：\n${strippedBase}`
-    : header;
-}
 
 function pickLabel(text: string, rules: Array<[RegExp, string]>) {
   const match = rules.find(([pattern]) => pattern.test(text));
@@ -424,27 +425,6 @@ function normalizeViewResult(result: AnalyzeResponse | null): AnalyzeResponse | 
   };
 }
 
-function inspectInputQuality(query: string) {
-  const text = query.trim();
-  const hasTargetMarket =
-    /日本|韩国|台湾|东南亚|美国|欧美|巴西|中东|土耳其|印度|印尼|泰国|越南|Global|Japan|US|SEA|Europe/i.test(text);
-  const hasUser =
-    /用户|开发者|学生|老师|团队|企业|卖家|创作者|运营|设计师|家长|老人|儿童|独居|B端|C端/i.test(text);
-  const hasProduct =
-    /AI|SaaS|工具|App|订阅|游戏|短剧|支付|机器人|机器狗|硬件|插件|平台|软件/i.test(text);
-  const hasBusiness =
-    /订阅|付费|广告|佣金|一次性|会员|充值|收款|支付|价格|客单价|售价|月费/i.test(text);
-  const hasScenario =
-    /用于|帮助|解决|提高|降低|自动|生成|管理|陪伴|学习|办公|营销|获客|养老|设计|素材|效率/i.test(text);
-  const missing: string[] = [];
-  if (!hasTargetMarket) missing.push('目标市场');
-  if (!hasUser) missing.push('目标用户');
-  if (!hasProduct) missing.push('产品类型');
-  if (!hasScenario) missing.push('使用场景 / 核心痛点');
-  if (!hasBusiness) missing.push('商业模式 / 付费方式');
-  return { score: 5 - missing.length, isEnough: missing.length <= 2, missing };
-}
-
 function AnalyzeHero({
   source,
   qualityScore,
@@ -506,6 +486,248 @@ function AnalyzeHero({
   );
 }
 
+function ClarificationBadge({ status }: { status: ClarificationFieldState['status'] }) {
+  const className = [
+    styles.clarificationBadge,
+    status === 'explicit'
+      ? styles.clarificationBadgeExplicit
+      : status === 'ambiguous'
+        ? styles.clarificationBadgeAmbiguous
+        : status === 'inferred'
+          ? styles.clarificationBadgeInferred
+          : styles.clarificationBadgeMissing,
+  ].join(' ');
+  return <span className={className}>{clarificationStatusLabel(status)}</span>;
+}
+
+function ClarificationGuide({
+  session,
+  progress,
+  focusRequest,
+  onSelectOption,
+  onEnterCustomMode,
+  onCustomDraftChange,
+  onConfirmCustomAnswer,
+  onBackQuestion,
+  onNextQuestion,
+  onEditField,
+  onFocusUnresolved,
+  onConfirm,
+}: {
+  session: ClarificationSession;
+  progress: ClarificationDerivedProgress;
+  focusRequest: { field: ClarificationFieldKey; seq: number } | null;
+  onSelectOption: (field: ClarificationFieldKey, value: string) => void;
+  onEnterCustomMode: (field: ClarificationFieldKey) => void;
+  onCustomDraftChange: (field: ClarificationFieldKey, value: string) => void;
+  onConfirmCustomAnswer: (field: ClarificationFieldKey) => void;
+  onBackQuestion: () => void;
+  onNextQuestion: () => void;
+  onEditField: (field: ClarificationFieldKey, value: string) => void;
+  onFocusUnresolved: () => void;
+  onConfirm: () => void;
+}) {
+  const [highlightField, setHighlightField] = useState<ClarificationFieldKey | null>(null);
+  const customInputRef = useRef<HTMLInputElement | null>(null);
+  const summaryFieldRefs = useRef<Partial<Record<GateFieldKey, HTMLInputElement | null>>>({});
+  const {
+    explicitCount,
+    unresolvedCount,
+    answeredQuestionCount,
+    questionTotal,
+    currentQuestionNumber,
+    canStartAnalyze,
+  } = progress;
+  const unresolvedLabels = REQUIRED_GATE_FIELDS
+    .filter(({ key }) => session.fields[key].status !== 'explicit')
+    .map(({ label }) => label);
+  const currentQuestion = session.questions[session.questionIndex];
+  const currentAnswered = currentQuestion ? Boolean(session.answeredFields[currentQuestion.field]) : false;
+  const currentField = currentQuestion?.field;
+  const currentValue = currentField ? session.fields[currentField].value : '';
+  const currentMode = currentField ? (session.answerModeByField[currentField] ?? null) : null;
+  const customValue = currentField ? (session.customDraftByField[currentField] ?? '') : '';
+  const customError = currentField ? (session.customErrorByField[currentField] ?? '') : '';
+  const customSaved = currentField ? Boolean(session.customSavedByField[currentField]) : false;
+  const isUndecidedSelected = currentQuestion
+    ? currentMode === 'undecided' && currentAnswered && currentValue === '暂未确定'
+    : false;
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    const target = summaryFieldRefs.current[focusRequest.field];
+    if (!target) return;
+    setHighlightField(focusRequest.field);
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.focus();
+    const timer = window.setTimeout(() => setHighlightField((current) => (current === focusRequest.field ? null : current)), 1800);
+    return () => window.clearTimeout(timer);
+  }, [focusRequest?.seq, focusRequest?.field]);
+
+  if (session.phase === 'idle') return null;
+
+  if (session.phase === 'questioning' && currentQuestion) {
+    return (
+      <section className={styles.clarificationPanel} aria-label="智能补问向导">
+        <div className={styles.clarificationHeader}>
+          <div>
+            <span className={styles.panelEyebrow}>Clarification Guide</span>
+            <h2>{unresolvedCount === 0 ? '主要问题已完成' : `还需要确认 ${unresolvedCount} 项验证条件`}</h2>
+            <p>{unresolvedCount === 0 ? '请进入 Brief 确认，检查信息后再开始验证。' : '先完成以下主要问题，再检查最终 Brief。'}</p>
+          </div>
+          <strong>补问进度 {answeredQuestionCount} / {questionTotal}</strong>
+        </div>
+        <div className={styles.clarificationQuestionCard}>
+          <span className={styles.clarificationQuestionIndex}>问题 {currentQuestionNumber} / {questionTotal}</span>
+          <h3>{currentQuestion.prompt}</h3>
+          <p>{currentQuestion.helper}</p>
+          <div className={styles.clarificationOptionGrid}>
+            {currentQuestion.options.map((option) => (
+              (() => {
+                const isOtherOption = option.label.includes('其他');
+                const isSelected = currentAnswered && currentMode !== 'custom' && currentValue === option.value;
+                const className = [
+                  styles.clarificationOptionButton,
+                  isOtherOption && currentMode === 'custom' ? styles.clarificationOptionSelected : '',
+                  isSelected ? styles.clarificationOptionSelected : '',
+                  isSelected && option.value === '暂未确定' ? styles.clarificationOptionUndecided : '',
+                ].filter(Boolean).join(' ');
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    className={className}
+                    onClick={() => {
+                      if (isOtherOption) {
+                        onEnterCustomMode(currentQuestion.field);
+                        window.setTimeout(() => customInputRef.current?.focus(), 0);
+                        return;
+                      }
+                      onSelectOption(currentQuestion.field, option.value);
+                    }}
+                  >
+                    <span>{option.label}</span>
+                    {option.suggested ? <small>系统建议</small> : null}
+                  </button>
+                );
+              })()
+            ))}
+          </div>
+          {isUndecidedSelected ? (
+            <div className={styles.clarificationUndecidedHint}>
+              你可以继续完成其他问题，但该项仍需补充，暂时不能生成完整验证判断。
+            </div>
+          ) : null}
+          {currentMode === 'custom' ? (
+            <label className={styles.clarificationCustomField}>
+              <span>自定义回答</span>
+              <div className={styles.clarificationCustomRow}>
+                <input
+                  ref={customInputRef}
+                  value={customValue}
+                  onChange={(event) => onCustomDraftChange(currentQuestion.field, event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      onConfirmCustomAnswer(currentQuestion.field);
+                    }
+                  }}
+                  placeholder="输入你的确认内容"
+                />
+                <button
+                  type="button"
+                  className={`${styles.commandSecondaryButton} ${styles.clarificationCustomSaveButton}`}
+                  onClick={() => onConfirmCustomAnswer(currentQuestion.field)}
+                  disabled={!customValue.trim()}
+                >
+                  确认自定义答案
+                </button>
+              </div>
+              {customError ? <small className={styles.clarificationCustomError}>{customError}</small> : null}
+            </label>
+          ) : null}
+          {customSaved && currentMode === 'custom'
+            ? <span className={styles.clarificationSavedHint}>已选择：自定义答案</span>
+            : null}
+          <div className={styles.clarificationActions}>
+            <button type="button" className={styles.commandSecondaryButton} onClick={onBackQuestion} disabled={session.questionIndex === 0}>
+              上一题
+            </button>
+            <button type="button" className={styles.commandPrimaryButton} onClick={onNextQuestion} disabled={!currentAnswered}>
+              {session.questionIndex + 1 >= session.questions.length ? '进入 Brief 确认' : '下一题'}
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className={styles.clarificationPanel} aria-label="验证 Brief 确认">
+      <div className={styles.clarificationHeader}>
+        <div>
+          <span className={styles.panelEyebrow}>Structured Brief</span>
+          <h2>验证 Brief 确认</h2>
+          <p>已确认 {explicitCount} / 5 项验证条件</p>
+        </div>
+        <strong>{explicitCount} / 5</strong>
+      </div>
+      <div className={styles.clarificationSummaryGrid}>
+        {REQUIRED_GATE_FIELDS.map(({ key, label }) => {
+          const field = session.fields[key];
+          return (
+            <label
+              key={key}
+              className={`${styles.clarificationSummaryItem} ${
+                field.status !== 'explicit' ? styles.clarificationSummaryItemPending : styles.clarificationSummaryItemReady
+              } ${highlightField === key ? styles.clarificationSummaryItemFocused : ''}`}
+              data-field={key}
+            >
+              <div className={styles.clarificationSummaryTop}>
+                <span>{label}</span>
+                <ClarificationBadge status={field.status} />
+              </div>
+              <input
+                ref={(node) => {
+                  summaryFieldRefs.current[key] = node;
+                }}
+                value={field.value}
+                placeholder="请确认该字段"
+                onChange={(event) => onEditField(key, event.target.value)}
+              />
+              <small>
+                {field.value === '暂未确定'
+                  ? '用户暂未确定，该项尚未满足完整验证条件'
+                  : field.reason}
+              </small>
+            </label>
+          );
+        })}
+      </div>
+      {!canStartAnalyze ? (
+        <div className={styles.clarificationLimitCard}>
+          <strong>当前能判断什么</strong>
+          <p>可识别已明确条件与待确认风险优先级。</p>
+          <strong>当前不能判断什么</strong>
+          <p>无法生成完整进入结论，最优先补齐：{unresolvedLabels[0] ?? '目标市场'}。</p>
+        </div>
+      ) : null}
+      <div className={styles.clarificationActions}>
+        <button type="button" className={styles.commandSecondaryButton} onClick={onBackQuestion}>
+          返回修改
+        </button>
+        <button
+          type="button"
+          className={styles.commandPrimaryButton}
+          onClick={canStartAnalyze ? onConfirm : onFocusUnresolved}
+        >
+          {canStartAnalyze ? '确认并开始验证' : '定位待确认项'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function SaveReportPanel({
   result,
   completedAnalysisInput,
@@ -561,88 +783,6 @@ function SaveReportPanel({
           {message ? '已保存到当前浏览器' : saving ? '保存中...' : '保存到我的报告'}
         </button>
         {savedReportId ? <a className={styles.ghostButton} href="/report">查看我的报告</a> : null}
-      </div>
-    </section>
-  );
-}
-
-function OpportunityValidationGate({
-  conditions,
-  onChange,
-  missingLabels,
-}: {
-  conditions: ValidationGateConditions;
-  onChange: (key: GateFieldKey, value: string) => void;
-  missingLabels: string[];
-}) {
-  const completedCount = REQUIRED_GATE_FIELDS.length - missingLabels.length;
-  const canSubmit = missingLabels.length === 0;
-  return (
-    <section className={styles.validationGatePanel} aria-label="补齐验证条件">
-      <div className={styles.validationGateHeader}>
-        <div>
-          <span className={styles.panelEyebrow}>Validation Gate</span>
-          <h2>补齐验证条件后生成报告</h2>
-          <p>从机会雷达进入时，需要先确认 5 项关键条件，避免过早触发“信息不足”的完整验证。</p>
-        </div>
-        <strong>{completedCount} / {REQUIRED_GATE_FIELDS.length}</strong>
-      </div>
-      <div className={styles.validationGateGrid}>
-        <label className={styles.validationGateField}>
-          <span>产品类型</span>
-          <input value={conditions.productType} onChange={(event) => onChange('productType', event.target.value)} placeholder="例如 AI 应用 / SaaS / App" />
-        </label>
-        <label className={styles.validationGateField}>
-          <span>目标市场</span>
-          <input value={conditions.targetMarket} onChange={(event) => onChange('targetMarket', event.target.value)} list="gate-market-options" placeholder="例如 日本" />
-          <datalist id="gate-market-options">
-            <option value="日本" />
-            <option value="东南亚" />
-            <option value="美国" />
-            <option value="欧洲" />
-            <option value="全球" />
-            <option value="其他" />
-          </datalist>
-        </label>
-        <label className={styles.validationGateField}>
-          <span>目标用户</span>
-          <input value={conditions.targetUser} onChange={(event) => onChange('targetUser', event.target.value)} list="gate-user-options" placeholder="例如 独立开发者" />
-          <datalist id="gate-user-options">
-            <option value="个人消费者" />
-            <option value="独立开发者" />
-            <option value="小团队" />
-            <option value="中小企业" />
-            <option value="大型企业" />
-            <option value="其他" />
-          </datalist>
-        </label>
-        <label className={styles.validationGateField}>
-          <span>商业模式</span>
-          <input value={conditions.businessModel} onChange={(event) => onChange('businessModel', event.target.value)} list="gate-business-options" placeholder="例如 订阅" />
-          <datalist id="gate-business-options">
-            <option value="订阅" />
-            <option value="一次性付费" />
-            <option value="广告" />
-            <option value="佣金 / 抽成" />
-            <option value="服务费" />
-            <option value="硬件 + 服务" />
-            <option value="尚未确定" />
-            <option value="其他" />
-          </datalist>
-        </label>
-        <label className={styles.validationGateFieldWide}>
-          <span>核心痛点（目标用户为什么现在需要解决这个问题）</span>
-          <textarea
-            value={conditions.painPoint}
-            onChange={(event) => onChange('painPoint', event.target.value)}
-            placeholder="例如：独立开发者难以低成本验证海外用户需求，现有工具配置复杂且反馈周期过长。"
-            rows={3}
-          />
-        </label>
-      </div>
-      <div className={styles.validationGateStatus}>
-        <strong>{canSubmit ? '条件已完整，可生成完整验证报告。' : `还需补齐 ${missingLabels.length} 项条件：${missingLabels.join('、')}`}</strong>
-        <small>仅当 5 项均为明确值时，系统才会执行完整验证。</small>
       </div>
     </section>
   );
@@ -1015,7 +1155,7 @@ function AssumptionExtractor({
         <div className={styles.missingInfoPanel}>
           <div className={styles.missingInfoCopy}>
             <span className={styles.panelEyebrow}>Missing Information</span>
-            <h3>{missingCritical.length >= 3 ? '信息不足，先补充关键假设' : '可进入低成本预验证，但需要补齐证据'}</h3>
+            <h3>{missingCritical.length >= 3 ? '还需要补齐关键假设，才能提升判断可靠性' : '还需补齐证据，确认后才能生成完整判断'}</h3>
             <p>
               {hasInput
                 ? '补齐以下项后，系统才能把结论、证据覆盖和下一步动作连接起来。'
@@ -1057,13 +1197,12 @@ export function AnalyzePage() {
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [inputQuality, setInputQuality] = useState<{ missing: string[]; query: string } | null>(null);
   const [protocol, setProtocol] = useState<MarketMvpResearchProtocol | null>(null);
   const [savedReportId, setSavedReportId] = useState<string | null>(null);
   const [completedAnalysisInput, setCompletedAnalysisInput] = useState<CompletedAnalysisInput | null>(null);
   const [analysisRunSerial, setAnalysisRunSerial] = useState(0);
-  const [gateConditions, setGateConditions] = useState<ValidationGateConditions>(() => extractGateConditionsFromBrief(queryFromUrl, targetMarketFromUrl, productTypeFromUrl));
-  const [opportunityGateActive, setOpportunityGateActive] = useState(isOpportunityEntry);
+  const [clarificationSession, setClarificationSession] = useState<ClarificationSession | null>(null);
+  const [clarificationFocusRequest, setClarificationFocusRequest] = useState<{ field: GateFieldKey; seq: number } | null>(null);
   const [workflowRunStatus, setWorkflowRunStatus] = useState<WorkflowRunStatus>('idle');
   const [workflowStages, setWorkflowStages] = useState<WorkflowStageItem[]>(() => initialWorkflowStages());
   const [workflowProviders, setWorkflowProviders] = useState<AnalyzeProviderEvent[]>([]);
@@ -1133,38 +1272,20 @@ export function AnalyzePage() {
   }, [workflowRunStatus]);
   const handleQueryChange = (value: string) => {
     setQuery(value);
-    setInputQuality(null);
     setError(null);
-    if (opportunityGateActive) {
-      setGateConditions((current) => ({
-        ...current,
-        ...extractGateConditionsFromBrief(value, current.targetMarket, current.productType),
-      }));
-    }
-  };
-
-  const applyQualityExample = (value: string) => {
-    setQuery(value);
-    setInputQuality(null);
-    window.sessionStorage.setItem(ANALYZE_QUERY_KEY, value);
+    setClarificationSession(null);
+    setClarificationFocusRequest(null);
   };
 
   const appendAssumptionSnippet = (snippet: string) => {
     const normalizedSnippet = snippet.replace(/^.+：例如/, '').replace(/^.+：/, '').trim();
     const nextQuery = query.trim() ? `${query.trim()}，${normalizedSnippet}` : normalizedSnippet;
     setQuery(nextQuery);
-    setInputQuality(null);
     setError(null);
+    setClarificationSession(null);
+    setClarificationFocusRequest(null);
     window.sessionStorage.setItem(ANALYZE_QUERY_KEY, nextQuery);
   };
-
-  const missingGateLabels = useMemo(
-    () => REQUIRED_GATE_FIELDS
-      .filter(({ key }) => !isExplicitGateValue(gateConditions[key]))
-      .map(({ label }) => label),
-    [gateConditions],
-  );
-  const isGateReady = missingGateLabels.length === 0;
 
   const runAnalyze = useCallback(async (
     briefValue = query,
@@ -1176,21 +1297,11 @@ export function AnalyzePage() {
       setResult(null);
       setProtocol(null);
       setCompletedAnalysisInput(null);
-      setInputQuality(null);
       setError('请先输入产品、想法或目标市场。');
       return;
     }
-    const quality = inspectInputQuality(normalizedQuery);
     const nextProtocol = buildMarketMvpResearchProtocol(normalizedQuery);
     setProtocol(nextProtocol);
-    if (!quality.isEnough) {
-      setInputQuality({ missing: quality.missing, query: normalizedQuery });
-      setResult(null);
-      setCompletedAnalysisInput(null);
-      setError(null);
-      setAnalyzing(false);
-      return;
-    }
     setError(null);
     const previousController = streamAbortRef.current;
     activeRunIdRef.current = null;
@@ -1203,10 +1314,11 @@ export function AnalyzePage() {
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
     }
     setSource(requestedSource);
+    setClarificationSession(null);
+    setClarificationFocusRequest(null);
     setResult(null);
     setSavedReportId(null);
     setCompletedAnalysisInput(null);
-    setInputQuality(null);
     setAnalyzing(true);
     setWorkflowRunStatus('preparing');
     setWorkflowCompatibilityFallback(false);
@@ -1357,10 +1469,12 @@ export function AnalyzePage() {
     handledAutoRunRef.current = autoRunKey;
     window.sessionStorage.setItem(autoRunOnceKey, '1');
     const requestedSource = getSource();
-    const nextGateConditions = extractGateConditionsFromBrief(autoBrief, targetMarketFromUrl, productTypeFromUrl);
-    const nextMissing = REQUIRED_GATE_FIELDS
-      .filter(({ key }) => !isExplicitGateValue(nextGateConditions[key]))
-      .map(({ label }) => label);
+    const seed: ClarificationParseSeed = {
+      productType: productTypeFromUrl || undefined,
+      targetMarket: targetMarketFromUrl || undefined,
+    };
+    const parsed = parseClarificationResult(autoBrief, seed);
+    const nextGateConditions = toStructuredConditions(parsed.fields);
     const nextProfile = {
       ...profile,
       targetMarket: targetMarketFromUrl || profile.targetMarket,
@@ -1373,26 +1487,43 @@ export function AnalyzePage() {
     setQuery(autoBrief);
     setProfile(nextProfile);
     setSource(requestedSource);
-    setGateConditions(nextGateConditions);
-    setOpportunityGateActive(true);
     setResult(null);
     setCompletedAnalysisInput(null);
     setSavedReportId(null);
-    setInputQuality(null);
     setError(null);
     setAnalyzing(false);
     window.sessionStorage.setItem(ANALYZE_QUERY_KEY, autoBrief);
-    if (nextMissing.length === 0) {
-      const mergedBrief = mergeGateConditionsIntoBrief(autoBrief, nextGateConditions);
+    if (hasAllExplicit(parsed.fields)) {
+      const mergedBrief = mergeStructuredBrief(autoBrief, nextGateConditions);
       setQuery(mergedBrief);
       window.sessionStorage.setItem(ANALYZE_QUERY_KEY, mergedBrief);
       void runAnalyze(mergedBrief, requestedSource, {
         ...nextProfile,
         targetMarket: nextGateConditions.targetMarket,
       });
-      setOpportunityGateActive(false);
+      setClarificationSession(null);
+      setClarificationFocusRequest(null);
+    } else {
+      setClarificationSession({
+        sourceQuery: autoBrief,
+        phase: parsed.questions.length > 0 ? 'questioning' : 'confirm',
+        fields: parsed.fields,
+        questions: parsed.questions,
+        questionIndex: 0,
+        answeredFields: initAnsweredFields(parsed.fields),
+        answerModeByField: initAnswerModes(parsed.fields),
+        customDraftByField: {},
+        customErrorByField: {},
+        customSavedByField: {},
+      });
+      setClarificationFocusRequest(null);
     }
   }, [analyzing, autoRunKey, profile, productTypeFromUrl, queryFromUrl, runAnalyze, targetMarketFromUrl]);
+
+  useEffect(() => {
+    setClarificationSession(null);
+    setClarificationFocusRequest(null);
+  }, [autoRunKey]);
 
   const resetAll = () => {
     const currentController = streamAbortRef.current;
@@ -1404,16 +1535,9 @@ export function AnalyzePage() {
     setSavedReportId(null);
     setCompletedAnalysisInput(null);
     setError(null);
-    setInputQuality(null);
     setProtocol(null);
-    setGateConditions({
-      productType: '',
-      targetMarket: '',
-      targetUser: '',
-      painPoint: '',
-      businessModel: '',
-    });
-    setOpportunityGateActive(false);
+    setClarificationSession(null);
+    setClarificationFocusRequest(null);
     setWorkflowRunStatus('idle');
     setWorkflowStages(initialWorkflowStages());
     setWorkflowProviders([]);
@@ -1440,7 +1564,11 @@ export function AnalyzePage() {
   const displaySource = backendJudgment && (backendJudgment as { mode?: 'real' | 'mock' | 'fallback' }).mode
     ? (backendJudgment as { mode: 'real' | 'mock' | 'fallback' }).mode
     : source;
-  const currentQuality = useMemo(() => (query.trim() ? inspectInputQuality(query) : { score: 0, isEnough: false, missing: [] }), [query]);
+  const parsedBrief = useMemo(() => (query.trim() ? parseClarificationResult(query) : null), [query]);
+  const activeBriefFields = clarificationSession?.fields ?? parsedBrief?.fields ?? null;
+  const currentQuality = useMemo(() => ({
+    score: activeBriefFields ? countExplicitFields(activeBriefFields) : 0,
+  }), [activeBriefFields]);
   const assumptions = useMemo(
     () => mergeBackendAssumptions(extractAssumptions(query, profile), backendJudgment),
     [backendJudgment, profile, query],
@@ -1453,55 +1581,309 @@ export function AnalyzePage() {
   const radarSource = new URLSearchParams(window.location.search).has('source') ? source : 'real';
 
   const briefConditionStatus = useMemo(() => {
-    if (opportunityGateActive) {
-      return REQUIRED_GATE_FIELDS.map(({ key, label }) => ({
-        key,
-        label,
-        filled: isExplicitGateValue(gateConditions[key]),
-      }));
-    }
-    if (!query.trim()) {
+    if (!activeBriefFields) {
       return REQUIRED_GATE_FIELDS.map(({ key, label }) => ({ key, label, filled: false }));
     }
-    const text = query.trim();
-    const fieldFilled: Record<GateFieldKey, boolean> = {
-      productType: /AI|SaaS|工具|App|订阅|游戏|短剧|支付|机器人|机器狗|硬件|插件|平台|软件/i.test(text),
-      targetMarket: /日本|韩国|台湾|东南亚|美国|欧美|巴西|中东|土耳其|印度|印尼|泰国|越南|Global|Japan|US|SEA|Europe/i.test(text),
-      targetUser: /用户|开发者|学生|老师|团队|企业|卖家|创作者|运营|设计师|家长|老人|儿童|独居|B端|C端/i.test(text),
-      painPoint: /用于|帮助|解决|提高|降低|自动|生成|管理|陪伴|学习|办公|营销|获客|养老|设计|素材|效率/i.test(text),
-      businessModel: /订阅|付费|广告|佣金|一次性|会员|充值|收款|支付|价格|客单价|售价|月费/i.test(text),
-    };
     return REQUIRED_GATE_FIELDS.map(({ key, label }) => ({
       key,
       label,
-      filled: fieldFilled[key],
+      filled: activeBriefFields[key].status === 'explicit',
     }));
-  }, [gateConditions, opportunityGateActive, query]);
-  const handleGateChange = (key: GateFieldKey, value: string) => {
-    setGateConditions((current) => ({ ...current, [key]: value }));
-  };
-  const handleSubmit = () => {
-    if (opportunityGateActive) {
-      if (!isGateReady) return;
-      const mergedBrief = mergeGateConditionsIntoBrief(query, gateConditions);
+  }, [activeBriefFields]);
+
+  const clarificationProgress = useMemo<ClarificationDerivedProgress | null>(() => {
+    if (!clarificationSession) return null;
+    const explicitCount = countExplicitFields(clarificationSession.fields);
+    const unresolvedCount = REQUIRED_GATE_FIELDS.length - explicitCount;
+    const questionTotal = clarificationSession.questions.length;
+    const answeredQuestionCount = clarificationSession.questions.filter((question) => clarificationSession.answeredFields[question.field]).length;
+    const currentQuestionNumber = clarificationSession.phase === 'questioning'
+      ? Math.min(questionTotal, clarificationSession.questionIndex + 1)
+      : questionTotal > 0 ? questionTotal : 1;
+    return {
+      explicitCount,
+      unresolvedCount,
+      answeredQuestionCount,
+      questionTotal,
+      currentQuestionNumber,
+      canStartAnalyze: hasAllExplicit(clarificationSession.fields),
+    };
+  }, [clarificationSession]);
+
+  const focusFirstUnresolvedField = useCallback(() => {
+    if (!clarificationSession) return;
+    const unresolvedField = REQUIRED_GATE_FIELDS
+      .map((item) => item.key)
+      .find((field) => clarificationSession.fields[field].status !== 'explicit');
+    if (!unresolvedField) return;
+    setClarificationFocusRequest((prev) => ({
+      field: unresolvedField,
+      seq: (prev?.seq ?? 0) + 1,
+    }));
+  }, [clarificationSession]);
+
+  const startClarification = useCallback((rawQuery: string, seed?: ClarificationParseSeed) => {
+    const normalized = rawQuery.trim();
+    if (!normalized) return;
+    const parsed = parseClarificationResult(normalized, seed);
+    const nextGateConditions = toStructuredConditions(parsed.fields);
+    if (hasAllExplicit(parsed.fields)) {
+      const mergedBrief = mergeStructuredBrief(normalized, nextGateConditions);
       const nextProfile = {
         ...profile,
-        targetMarket: gateConditions.targetMarket,
+        targetMarket: nextGateConditions.targetMarket || profile.targetMarket,
       };
+      setClarificationSession(null);
+      setClarificationFocusRequest(null);
       setQuery(mergedBrief);
       setProfile(nextProfile);
       window.sessionStorage.setItem(ANALYZE_QUERY_KEY, mergedBrief);
       void runAnalyze(mergedBrief, source, nextProfile);
-      setOpportunityGateActive(false);
       return;
     }
-    void runAnalyze();
+    setClarificationSession({
+      sourceQuery: normalized,
+      phase: parsed.questions.length > 0 ? 'questioning' : 'confirm',
+      fields: parsed.fields,
+      questions: parsed.questions,
+      questionIndex: 0,
+      answeredFields: initAnsweredFields(parsed.fields),
+      answerModeByField: initAnswerModes(parsed.fields),
+      customDraftByField: {},
+      customErrorByField: {},
+      customSavedByField: {},
+    });
+    setClarificationFocusRequest(null);
+  }, [profile, runAnalyze, source]);
+
+  const updateClarificationField = useCallback((field: ClarificationFieldKey, value: string) => {
+    setClarificationSession((current) => {
+      if (!current) return current;
+      const normalized = value.trim();
+      if (!normalized) return current;
+      const nextMode: ClarificationAnswerMode = value === '暂未确定' ? 'undecided' : 'option';
+      return {
+        ...current,
+        fields: applyFieldAnswer(current.fields, field, value),
+        answeredFields: {
+          ...current.answeredFields,
+          [field]: true,
+        },
+        answerModeByField: {
+          ...current.answerModeByField,
+          [field]: nextMode,
+        },
+        customErrorByField: {
+          ...current.customErrorByField,
+          [field]: '',
+        },
+        customSavedByField: {
+          ...current.customSavedByField,
+          [field]: false,
+        },
+      };
+    });
+    setClarificationFocusRequest((current) => (current?.field === field ? null : current));
+  }, []);
+
+  const enterCustomMode = useCallback((field: ClarificationFieldKey) => {
+    setClarificationSession((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        fields: {
+          ...current.fields,
+          [field]: {
+            ...current.fields[field],
+            value: '',
+            status: 'missing',
+            reason: '请确认自定义答案后继续。',
+          },
+        },
+        answeredFields: {
+          ...current.answeredFields,
+          [field]: false,
+        },
+        answerModeByField: {
+          ...current.answerModeByField,
+          [field]: 'custom',
+        },
+        customErrorByField: {
+          ...current.customErrorByField,
+          [field]: '',
+        },
+        customSavedByField: {
+          ...current.customSavedByField,
+          [field]: false,
+        },
+      };
+    });
+  }, []);
+
+  const updateCustomDraft = useCallback((field: ClarificationFieldKey, value: string) => {
+    setClarificationSession((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        customDraftByField: {
+          ...current.customDraftByField,
+          [field]: value,
+        },
+        customErrorByField: {
+          ...current.customErrorByField,
+          [field]: '',
+        },
+      };
+    });
+  }, []);
+
+  const confirmCustomAnswer = useCallback((field: ClarificationFieldKey) => {
+    setClarificationSession((current) => {
+      if (!current) return current;
+      const draft = (current.customDraftByField[field] ?? '').trim();
+      const validation = validateClarificationAnswer(field, draft);
+      if (!validation.ok) {
+        return {
+          ...current,
+          fields: {
+            ...current.fields,
+            [field]: {
+              ...current.fields[field],
+              status: 'missing',
+            },
+          },
+          answeredFields: {
+            ...current.answeredFields,
+            [field]: false,
+          },
+          answerModeByField: {
+            ...current.answerModeByField,
+            [field]: 'custom',
+          },
+          customErrorByField: {
+            ...current.customErrorByField,
+            [field]: [validation.message, validation.hint].filter(Boolean).join(' '),
+          },
+          customSavedByField: {
+            ...current.customSavedByField,
+            [field]: false,
+          },
+        };
+      }
+      return {
+        ...current,
+        fields: applyFieldAnswer(current.fields, field, draft),
+        answeredFields: {
+          ...current.answeredFields,
+          [field]: true,
+        },
+        answerModeByField: {
+          ...current.answerModeByField,
+          [field]: 'custom',
+        },
+        customErrorByField: {
+          ...current.customErrorByField,
+          [field]: '',
+        },
+        customSavedByField: {
+          ...current.customSavedByField,
+          [field]: true,
+        },
+      };
+    });
+  }, []);
+
+  const handleConfirmBrief = useCallback(() => {
+    if (analyzing || activeRunIdRef.current) return;
+    if (!clarificationSession) return;
+    if (!hasAllExplicit(clarificationSession.fields)) {
+      focusFirstUnresolvedField();
+      return;
+    }
+    const conditions = toStructuredConditions(clarificationSession.fields);
+    const mergedBrief = mergeStructuredBrief(clarificationSession.sourceQuery, conditions);
+    const nextProfile = {
+      ...profile,
+      targetMarket: conditions.targetMarket || profile.targetMarket,
+    };
+    setQuery(mergedBrief);
+    setProfile(nextProfile);
+    setClarificationSession(null);
+    setClarificationFocusRequest(null);
+    window.sessionStorage.setItem(ANALYZE_QUERY_KEY, mergedBrief);
+    void runAnalyze(mergedBrief, source, nextProfile);
+  }, [analyzing, clarificationSession, focusFirstUnresolvedField, profile, runAnalyze, source]);
+
+  const handleClarificationNext = useCallback(() => {
+    setClarificationSession((current) => {
+      if (!current) return current;
+      if (current.phase === 'confirm') return current;
+      const currentQuestion = current.questions[current.questionIndex];
+      if (currentQuestion && !current.answeredFields[currentQuestion.field]) {
+        return current;
+      }
+      if (current.questionIndex + 1 >= current.questions.length) {
+        return { ...current, phase: 'confirm' };
+      }
+      return { ...current, questionIndex: current.questionIndex + 1 };
+    });
+  }, []);
+
+  const handleClarificationBack = useCallback(() => {
+    setClarificationSession((current) => {
+      if (!current) return current;
+      if (current.phase === 'confirm') {
+        if (current.questions.length === 0) return current;
+        const unresolvedField = REQUIRED_GATE_FIELDS
+          .map((item) => item.key)
+          .find((field) => current.fields[field].status !== 'explicit');
+        if (!unresolvedField) {
+          return {
+            ...current,
+            phase: 'questioning',
+            questionIndex: Math.max(0, current.questions.length - 1),
+          };
+        }
+        const existingQuestionIndex = current.questions.findIndex((question) => question.field === unresolvedField);
+        if (existingQuestionIndex >= 0) {
+          return {
+            ...current,
+            phase: 'questioning',
+            questionIndex: existingQuestionIndex,
+          };
+        }
+        return current;
+      }
+      return { ...current, questionIndex: Math.max(0, current.questionIndex - 1) };
+    });
+    if (clarificationSession?.phase === 'confirm') {
+      const unresolvedField = REQUIRED_GATE_FIELDS
+        .map((item) => item.key)
+        .find((field) => clarificationSession.fields[field].status !== 'explicit');
+      if (unresolvedField) {
+        const existingQuestionIndex = clarificationSession.questions.findIndex((question) => question.field === unresolvedField);
+        if (existingQuestionIndex < 0) {
+          focusFirstUnresolvedField();
+        }
+      }
+    }
+  }, [clarificationSession, focusFirstUnresolvedField]);
+
+  const handleSubmit = () => {
+    if (analyzing || activeRunIdRef.current) return;
+    if (clarificationSession?.phase === 'confirm') {
+      handleConfirmBrief();
+      return;
+    }
+    startClarification(query);
   };
-  const submitLabel = opportunityGateActive
-    ? (isGateReady ? '生成完整验证报告' : `还需补齐 ${missingGateLabels.length} 项条件`)
+  const submitLabel = clarificationSession
+    ? (hasAllExplicit(clarificationSession.fields) ? '确认并开始验证' : '定位待确认项')
     : '生成验证判断';
-  const submitDisabled = opportunityGateActive && !isGateReady;
-  const validationOsStatus = opportunityGateActive && !isGateReady ? '等待补齐验证条件' : undefined;
+  const submitDisabled = false;
+  const validationOsStatus = clarificationSession
+    ? (hasAllExplicit(clarificationSession.fields) ? 'Brief 已确认' : '等待补问确认')
+    : undefined;
 
   return (
     <AppShell>
@@ -1523,20 +1905,28 @@ export function AnalyzePage() {
           analyzing={analyzing}
           submitLabel={submitLabel}
           submitDisabled={submitDisabled}
+          statusNote={clarificationSession ? '先完成补问确认，再发起验证请求。' : undefined}
           onQueryChange={handleQueryChange}
           onSubmit={handleSubmit}
           onReset={resetAll}
         />
-        {/* 3. 验证条件 checklist（紧凑，仅在非 gate 激活时）*/}
-        {!opportunityGateActive ? (
-          <BriefConditionsChecklist conditionStatus={briefConditionStatus} />
-        ) : null}
-        {/* 4. 机会验证条件门（条件不足时展开编辑）*/}
-        {opportunityGateActive ? (
-          <OpportunityValidationGate
-            conditions={gateConditions}
-            onChange={handleGateChange}
-            missingLabels={missingGateLabels}
+        {/* 3. 验证条件 checklist */}
+        <BriefConditionsChecklist conditionStatus={briefConditionStatus} />
+        {/* 4. 智能补问与结构化确认 */}
+        {clarificationSession ? (
+          <ClarificationGuide
+            session={clarificationSession}
+            progress={clarificationProgress as ClarificationDerivedProgress}
+            focusRequest={clarificationFocusRequest}
+            onSelectOption={updateClarificationField}
+            onEnterCustomMode={enterCustomMode}
+            onCustomDraftChange={updateCustomDraft}
+            onConfirmCustomAnswer={confirmCustomAnswer}
+            onBackQuestion={handleClarificationBack}
+            onNextQuestion={handleClarificationNext}
+            onEditField={updateClarificationField}
+            onFocusUnresolved={focusFirstUnresolvedField}
+            onConfirm={handleConfirmBrief}
           />
         ) : null}
         {/* 5. 唯一真实验证执行工作台 */}
@@ -1557,9 +1947,6 @@ export function AnalyzePage() {
           onPatch={appendAssumptionSnippet}
         />
         {!viewResult ? <AnalyzeAdvancedOptions profile={profile} onChange={setProfile} /> : null}
-        {inputQuality ? (
-          <AnalyzeInputQualityGate missing={inputQuality.missing} query={inputQuality.query} onExampleApply={applyQualityExample} />
-        ) : null}
         {/* 7. Verdict 与完整报告 */}
         {protocol ? (
           <MarketMvpResearchProtocolPanel

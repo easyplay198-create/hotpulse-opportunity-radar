@@ -430,6 +430,311 @@
   font-size: 12px;
 }
 
+.clarificationPanel {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid #dbe7f4;
+  border-radius: 20px;
+  background: #fbfdff;
+}
+
+.clarificationHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.clarificationHeader h2 {
+  margin: 6px 0 8px;
+  color: #10203d;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.clarificationHeader p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.clarificationHeader > strong {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid #dbe7f4;
+  background: #f8fbff;
+  color: #244b86;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.clarificationQuestionCard {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dbe7f4;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.clarificationQuestionCard h3 {
+  margin: 0;
+  color: #10203d;
+  font-size: 20px;
+}
+
+.clarificationQuestionIndex {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 24px;
+  align-items: center;
+  padding: 0 9px;
+  border: 1px solid #dbe7f4;
+  border-radius: 999px;
+  background: #f8fbff;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.clarificationQuestionCard p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.clarificationOptionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.clarificationOptionButton {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid #dbe7f4;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #10203d;
+  cursor: pointer;
+  font: inherit;
+}
+
+.clarificationOptionButton:hover {
+  border-color: #8fb2e6;
+  background: #f1f7ff;
+}
+
+.clarificationOptionSelected {
+  border-color: #8fb2e6;
+  background: #eff6ff;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+.clarificationOptionSelected::after {
+  content: "✓ 已选择";
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.clarificationOptionUndecided {
+  border-color: rgba(245, 158, 11, 0.32);
+  background: #fffbeb;
+}
+
+.clarificationOptionUndecided::after {
+  color: #92400e;
+}
+
+.clarificationOptionButton small {
+  color: #244b86;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.clarificationUndecidedHint {
+  padding: 9px 11px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 11px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.clarificationCustomField {
+  display: grid;
+  gap: 6px;
+}
+
+.clarificationCustomField > span {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.clarificationCustomRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.clarificationCustomSaveButton {
+  white-space: nowrap;
+  min-width: 112px;
+}
+
+.clarificationCustomRow input,
+.clarificationSummaryItem input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #dbe7f4;
+  border-radius: 12px;
+  background: #fff;
+  color: #10203d;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.clarificationCustomRow input:focus,
+.clarificationSummaryItem input:focus {
+  border-color: #8fb2e6;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+}
+
+.clarificationActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.clarificationSavedHint {
+  color: #166534;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.clarificationCustomError {
+  color: #b45309;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.clarificationSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.clarificationSummaryItem {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #e5edf7;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.clarificationSummaryItemReady {
+  opacity: 0.86;
+}
+
+.clarificationSummaryItemPending {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: #fffdf8;
+}
+
+.clarificationSummaryItemFocused {
+  border-color: #8fb2e6;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.14);
+}
+
+.clarificationSummaryTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.clarificationSummaryTop > span {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.clarificationSummaryItem small {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.clarificationBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.clarificationBadgeExplicit {
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.clarificationBadgeAmbiguous {
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.clarificationBadgeInferred {
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.clarificationBadgeMissing {
+  border: 1px solid #dbe7f4;
+  background: #f8fbff;
+  color: #64748b;
+}
+
+.clarificationLimitCard {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #dbe7f4;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.clarificationLimitCard strong {
+  color: #10203d;
+  font-size: 13px;
+}
+
+.clarificationLimitCard p {
+  margin: 0 0 6px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .workflowPanel {
   display: grid;
   gap: 12px;
@@ -2963,6 +3268,8 @@
   .assumptionGrid,
   .decisionContractGrid,
   .validationGateGrid,
+  .clarificationOptionGrid,
+  .clarificationSummaryGrid,
   .workflowStageList {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2995,6 +3302,8 @@
   .qualityGrid,
   .assumptionGrid,
   .validationGateGrid,
+  .clarificationOptionGrid,
+  .clarificationSummaryGrid,
   .workflowStageList,
   .advancedGrid,
   .decisionMetaGrid,
@@ -3020,6 +3329,7 @@
   .assumptionHeader,
   .qualityHeader,
   .progressHeader,
+  .clarificationHeader,
   .protocolHeader,
   .protocolBlockHeader,
   .validationCaptureHeader,
@@ -3051,6 +3361,10 @@
 
   .commandActions {
     justify-content: stretch;
+  }
+
+  .clarificationCustomRow {
+    display: grid;
   }
 
   .commandPrimaryButton,

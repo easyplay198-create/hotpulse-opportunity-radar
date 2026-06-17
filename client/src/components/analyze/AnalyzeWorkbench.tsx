@@ -8,6 +8,7 @@ interface Props {
   analyzing: boolean;
   submitLabel?: string;
   submitDisabled?: boolean;
+  statusNote?: string;
   onQueryChange: (query: string) => void;
   onSubmit: () => void;
   onReset: () => void;
@@ -37,6 +38,7 @@ export function AnalyzeWorkbench({
   analyzing,
   submitLabel,
   submitDisabled,
+  statusNote,
   onQueryChange,
   onSubmit,
   onReset,
@@ -73,7 +75,7 @@ export function AnalyzeWorkbench({
             rows={8}
           />
           <div className={styles.commandGuide}>
-            <span>Ctrl / Cmd + Enter 可直接开始验证</span>
+            <span>{statusNote ?? 'Ctrl / Cmd + Enter 可直接开始验证'}</span>
             <div className={styles.commandActions}>
               <button type="button" className={styles.commandPrimaryButton} onClick={onSubmit} disabled={analyzing || submitDisabled}>
                 {analyzing ? '验证中...' : (submitLabel ?? '生成验证判断')}
