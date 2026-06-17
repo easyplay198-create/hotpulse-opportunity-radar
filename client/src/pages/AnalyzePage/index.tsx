@@ -472,9 +472,12 @@ function AnalyzeHero({
     <section className={styles.analyzeHero}>
       <div className={styles.heroCopy}>
         <span className={styles.heroEyebrow}>出海验证工具</span>
-        <h1>先验证，再投入</h1>
-        <p>
-          输入产品、目标市场、用户和商业假设，系统会评估证据、风险与下一步验证动作。
+        <h1 className={styles.heroTitle}>
+          <span className={styles.heroTitleSegment}>看清方向，</span>
+          <span className={styles.heroTitleSegment}>再决定进入</span>
+        </h1>
+        <p className={styles.heroSubtitle}>
+          用市场信号、证据强度与风险，判断现在该继续、暂缓还是停止。
         </p>
       </div>
       <aside className={styles.heroStatusCard} aria-label="验证工作台状态">

@@ -343,7 +343,7 @@ export function HomePage() {
         <section className={styles.hero} aria-label="首页首屏">
           <div className={styles.heroLeft}>
             <div className={styles.eyebrow}>Market MVP Validation OS</div>
-            <h1 className={styles.heroTitle}>发现机会，验证后再投入</h1>
+            <h1 className={styles.heroTitle}>找到机会，更要看清机会</h1>
             <p className={styles.heroSub}>面向 AI / SaaS / App 出海团队，在开发和投放前，先验证市场信号、风险与下一步动作。</p>
             <div className={styles.heroActions}>
               <a className={styles.primaryButton} href={withSource('/analyze')}>开始一次验证规划</a>
