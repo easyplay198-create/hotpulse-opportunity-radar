@@ -66,6 +66,32 @@
   padding: 6px 10px;
   border-radius: 999px;
   background: #f8fafc;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+/* Active: brand deep-blue filled pill — must be clearly stronger than hover */
+.navLinkActive {
+  background: #244b86;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Hover: only on non-active items */
+.navLink:not(.navLinkActive):hover {
+  background: #e8eef7;
+  color: #1a3868;
+}
+
+/* Active item keeps its primary state when hovered */
+.navLinkActive:hover {
+  background: #244b86;
+  color: #fff;
+}
+
+/* Keyboard focus ring — works alongside active state */
+.navLink:focus-visible {
+  outline: 2px solid #244b86;
+  outline-offset: 3px;
 }
 
 @media (max-width: 720px) {

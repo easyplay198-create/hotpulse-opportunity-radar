@@ -1,3 +1,4 @@
+import { getActiveNavKey, type NavKey } from '../../lib/navActiveUtils';
 import styles from './TopNav.module.css';
 
 function currentSource() {
@@ -5,17 +6,25 @@ function currentSource() {
   return source === 'mock' || source === 'fallback' ? source : 'real';
 }
 
+interface NavItem {
+  label: string;
+  href: string;
+  navKey: NavKey;
+}
+
 export function TopNav() {
   const source = currentSource();
-  const withSource = (path: string) => (path.includes('?') ? `${path}&source=${source}` : `${path}?source=${source}`);
+  const activeKey = getActiveNavKey(window.location.pathname);
+  const withSource = (path: string) =>
+    path.includes('?') ? `${path}&source=${source}` : `${path}?source=${source}`;
 
-  const navItems = [
-    { label: '首页', href: withSource('/') },
-    { label: '机会雷达', href: withSource('/opportunities') },
-    { label: '验证工具', href: withSource('/analyze') },
-    { label: '我的报告', href: withSource('/report') },
-    { label: '执行支持', href: withSource('/resources') },
-    { label: '验证案例', href: withSource('/cases') },
+  const navItems: NavItem[] = [
+    { label: '首页', href: withSource('/'), navKey: 'home' },
+    { label: '机会雷达', href: withSource('/opportunities'), navKey: 'opportunities' },
+    { label: '验证工具', href: withSource('/analyze'), navKey: 'analyze' },
+    { label: '我的报告', href: withSource('/report'), navKey: 'report' },
+    { label: '执行支持', href: withSource('/resources'), navKey: 'resources' },
+    { label: '验证案例', href: withSource('/cases'), navKey: 'cases' },
   ];
 
   return (
@@ -31,9 +40,19 @@ export function TopNav() {
         </div>
       </div>
       <nav className={styles.navLinks} aria-label="主导航">
-        {navItems.map((item) => (
-          <a key={item.label} href={item.href} className={styles.navLink}>{item.label}</a>
-        ))}
+        {navItems.map((item) => {
+          const isActive = activeKey === item.navKey;
+          return (
+            <a
+              key={item.label}
+              href={item.href}
+              className={isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink}
+              aria-current={isActive ? 'page' : undefined}
+            >
+              {item.label}
+            </a>
+          );
+        })}
       </nav>
     </header>
   );
