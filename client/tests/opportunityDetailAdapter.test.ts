@@ -5,6 +5,7 @@ import type { EvidenceItem, HotItem } from '../src/types/hot.js';
 import type { HotspotItem } from '../src/types/hotspot.js';
 import { resolveOpportunityDataTier } from '../src/types/opportunityDetail.js';
 import { resolveResponseDataTierOrThrow } from '../src/api/getHotspotListFromApi.js';
+import { normalizeCachedOpportunitiesEntry } from '../src/lib/opportunitiesCache.js';
 import {
   buildOpportunityDetailViewModel,
   computeEvidenceStrength,
@@ -124,6 +125,71 @@ describe('Data Tier mapping', () => {
     const fallbackList = await getHotspotList();
     assert.equal(fallbackList.items.every((item) => item.dataTier === 'fallback'), true);
     assert.equal(fallbackList.items.some((item) => item.id === sentinelId), false);
+  });
+
+  it('request params and response mismatch use response tier as authority', () => {
+    // Simulate "requested real, response fallback": only response tier should be used downstream.
+    assert.equal(resolveResponseDataTierOrThrow('fallback'), 'fallback');
+  });
+});
+
+describe('Cache compatibility and authority', () => {
+  it('cache source is authority and injects missing item dataTier', () => {
+    const legacyItem = {
+      id: 'legacy-no-tier',
+      platformId: 'Hacker News',
+      title: 'Legacy',
+      category: 'AI',
+      heat: 60,
+      interaction: 55,
+      valueScore: 58,
+      verdict: 'watch',
+      summary: 'legacy',
+      tags: [],
+      publishedAt: '2026-06-18T00:00:00.000Z',
+    } as unknown as HotItem;
+
+    const normalized = normalizeCachedOpportunitiesEntry({
+      source: 'real',
+      opportunities: [legacyItem],
+      retrievedAt: '2026-06-18T00:00:00.000Z',
+    }, 'real');
+
+    assert.notEqual(normalized, null);
+    assert.equal(normalized?.source, 'real');
+    assert.equal(normalized?.opportunities[0]?.dataTier, 'real');
+  });
+
+  it('cache source overrides conflicting item dataTier', () => {
+    const conflicting = sampleHotItem({ dataTier: 'fallback' });
+    const normalized = normalizeCachedOpportunitiesEntry({
+      source: 'mock',
+      opportunities: [conflicting],
+      retrievedAt: '2026-06-18T00:00:00.000Z',
+    }, 'mock');
+
+    assert.notEqual(normalized, null);
+    assert.equal(normalized?.opportunities[0]?.dataTier, 'mock');
+  });
+
+  it('unknown cache source is rejected and never downgraded to mock', () => {
+    const normalized = normalizeCachedOpportunitiesEntry({
+      source: 'unknown-provider',
+      opportunities: [sampleHotItem()],
+      retrievedAt: '2026-06-18T00:00:00.000Z',
+    }, 'real');
+
+    assert.equal(normalized, null);
+  });
+
+  it('cache source mismatch is rejected', () => {
+    const normalized = normalizeCachedOpportunitiesEntry({
+      source: 'fallback',
+      opportunities: [sampleHotItem({ dataTier: 'real' })],
+      retrievedAt: '2026-06-18T00:00:00.000Z',
+    }, 'real');
+
+    assert.equal(normalized, null);
   });
 });
 

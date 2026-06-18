@@ -166,4 +166,3 @@ export function buildOpportunityDetailViewModel(item: HotItem): OpportunityDetai
     },
   };
 }
-

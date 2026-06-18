@@ -2,12 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchOpportunities } from '../../api/fetchOpportunities';
 import { buildHotspotListFromItems, getHotspotList } from '../../api/getHotspotList';
 import { resolveResponseDataTierOrThrow } from '../../api/getHotspotListFromApi';
+import {
+  normalizeCachedOpportunitiesEntry,
+  type OpportunitiesCacheEntry,
+  type OpportunitiesCacheStore,
+  type OpportunitiesDataSource,
+} from '../../lib/opportunitiesCache';
 import { AppShell } from '../../components/layout/AppShell';
 import { TopNav } from '../../components/layout/TopNav';
 import type { EvidenceItem, EvidenceStrength, HotItem, ProviderStats } from '../../types/hot';
 import styles from './OpportunitiesPage.module.css';
 
-type DataSource = 'real' | 'mock' | 'fallback';
+type DataSource = OpportunitiesDataSource;
 type RadarTab = 'opportunities' | 'signals';
 type StatusFilter = 'all' | 'do_now' | 'watch' | 'skip';
 type StrengthFilter = 'all' | EvidenceStrength;
@@ -44,16 +50,6 @@ interface FilterState {
   sort: SortKey;
 }
 
-interface OpportunitiesCacheEntry {
-  source: DataSource;
-  opportunities: HotItem[];
-  providerStats?: ProviderStats;
-  generatedAt?: string;
-  retrievedAt: string;
-}
-
-type OpportunitiesCacheStore = Partial<Record<DataSource, OpportunitiesCacheEntry>>;
-
 const ALL = 'all';
 const UNKNOWN_MARKET = '市场待确认';
 const OPPORTUNITIES_CACHE_KEY = 'hotpulse.opportunitiesCache.v1';
@@ -71,28 +67,12 @@ function initialTab(): RadarTab {
   return params.get('tab') === 'signals' ? 'signals' : 'opportunities';
 }
 
-function isHotItemArray(value: unknown): value is HotItem[] {
-  return Array.isArray(value) && value.every((item) => (
-    item
-    && typeof item === 'object'
-    && typeof (item as HotItem).id === 'string'
-    && typeof (item as HotItem).title === 'string'
-  ));
-}
-
 function readOpportunitiesCache(source: DataSource): OpportunitiesCacheEntry | null {
   try {
     const raw = window.sessionStorage.getItem(OPPORTUNITIES_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as OpportunitiesCacheStore;
-    const cached = parsed?.[source];
-    if (
-      cached?.source === source
-      && isHotItemArray(cached.opportunities)
-      && typeof cached.retrievedAt === 'string'
-    ) {
-      return cached;
-    }
+    return normalizeCachedOpportunitiesEntry(parsed?.[source], source);
   } catch {
     window.sessionStorage.removeItem(OPPORTUNITIES_CACHE_KEY);
   }
@@ -415,7 +395,7 @@ export function OpportunitiesPage() {
           dataTier: responseDataTier,
         });
         if (cancelled) return;
-        const nextSource = requestedSource === 'real' ? 'real' : 'mock';
+        const nextSource = responseDataTier;
         const retrievedAt = raw.generatedAt ?? new Date().toISOString();
         writeOpportunitiesCache({
           source: nextSource,
