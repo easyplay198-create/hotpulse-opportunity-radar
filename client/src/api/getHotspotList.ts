@@ -4,8 +4,15 @@ import { buildScoreExplanation } from '../features/hotspot-scoring/score-explain
 import type { HotListResponse, HotItem, HotPlatform } from '../types/hot';
 import type { HotspotItem } from '../types/hotspot';
 import type { HotspotScoreInput } from '../features/hotspot-scoring/score';
+import type { OpportunityDataTier } from '../types/opportunityDetail';
 
-export function buildHotspotListFromItems(hotspots: HotspotItem[]): HotListResponse {
+export function buildHotspotListFromItems(
+  hotspots: HotspotItem[],
+  options?: { dataTier?: OpportunityDataTier },
+): HotListResponse {
+  // dataTier is a response-batch property, never inferred per item.
+  // Caller injects a single authoritative tier for the entire mapped list.
+  const dataTier = options?.dataTier ?? 'mock';
   const items: HotItem[] = hotspots.map((h) => {
     const input: HotspotScoreInput = {
       trendVelocity: h.trendVelocity,
@@ -45,6 +52,7 @@ export function buildHotspotListFromItems(hotspots: HotspotItem[]): HotListRespo
       marketEntryNotes: h.marketEntryNotes,
       competitionRisk: h.competitionRisk ?? h.competitionLevel,
       evidence: h.evidence,
+      dataTier,
     };
   });
 
@@ -59,5 +67,5 @@ export function buildHotspotListFromItems(hotspots: HotspotItem[]): HotListRespo
 }
 
 export async function getHotspotList(): Promise<HotListResponse> {
-  return buildHotspotListFromItems(seed as HotspotItem[]);
+  return buildHotspotListFromItems(seed as HotspotItem[], { dataTier: 'fallback' });
 }

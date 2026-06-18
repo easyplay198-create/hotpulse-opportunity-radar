@@ -74,6 +74,8 @@ export interface HotItem {
   /** 竞争压力 0–100 */
   competitionRisk?: number;
   evidence?: EvidenceItem[];
+  /** Item-level identity: real/mock/fallback */
+  dataTier: 'real' | 'mock' | 'fallback';
   /** 后续可扩展：sourceUrl、riskLevel、competitionLevel */
 }
 

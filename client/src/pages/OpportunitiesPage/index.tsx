@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchOpportunities } from '../../api/fetchOpportunities';
 import { buildHotspotListFromItems, getHotspotList } from '../../api/getHotspotList';
+import { resolveResponseDataTierOrThrow } from '../../api/getHotspotListFromApi';
 import { AppShell } from '../../components/layout/AppShell';
 import { TopNav } from '../../components/layout/TopNav';
 import type { EvidenceItem, EvidenceStrength, HotItem, ProviderStats } from '../../types/hot';
@@ -409,7 +410,10 @@ export function OpportunitiesPage() {
         }
 
         const raw = await fetchOpportunities(requestedSource === 'real' ? 'real' : undefined);
-        const data = buildHotspotListFromItems(raw.items);
+        const responseDataTier = resolveResponseDataTierOrThrow(raw.source);
+        const data = buildHotspotListFromItems(raw.items, {
+          dataTier: responseDataTier,
+        });
         if (cancelled) return;
         const nextSource = requestedSource === 'real' ? 'real' : 'mock';
         const retrievedAt = raw.generatedAt ?? new Date().toISOString();

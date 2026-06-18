@@ -9,10 +9,8 @@ export type HotspotCategory =
   | 'Other';
 
 export type SourceType =
-  | 'news'
-  | 'social'
-  | 'community'
-  | 'search';
+  // Transport-layer raw value from backend/provider. Not normalized semantics.
+  string;
 
 export type EvidenceStrength = 'high' | 'medium' | 'low';
 

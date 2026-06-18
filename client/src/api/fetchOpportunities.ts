@@ -10,7 +10,12 @@ export interface ProviderStatItem {
 }
 
 export interface OpportunitiesResponse {
-  source: 'mock' | 'hacker-news' | 'real' | 'fallback';
+  /**
+   * Raw transport source marker from API.
+   * Keep as string because backend/runtime may return extra provider modes.
+   * Must be normalized before business usage.
+   */
+  source: string;
   generatedAt?: string;
   count: number;
   items: HotspotItem[];
