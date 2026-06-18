@@ -55,4 +55,3 @@ export function normalizeCachedOpportunitiesEntry(
     retrievedAt: candidate.retrievedAt,
   };
 }
-

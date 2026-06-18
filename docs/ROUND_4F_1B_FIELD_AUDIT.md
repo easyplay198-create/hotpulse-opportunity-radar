@@ -510,4 +510,3 @@ verdict 阈值：
 
 ### H. CTA 与验证工具数据传递
 - query 传递 + auto-run + clarification + stream；已有去重与 abort 防护。
-
