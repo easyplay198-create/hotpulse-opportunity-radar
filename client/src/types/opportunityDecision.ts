@@ -93,6 +93,8 @@ export interface OpportunityDecisionV1 {
     status: 'requires_user_context';
     statement: string;
     analyzeHref?: string;
+    keyQuestions: string[];
+    questionsProvenance: 'rule_derived';
   };
 
   dataNotes: {

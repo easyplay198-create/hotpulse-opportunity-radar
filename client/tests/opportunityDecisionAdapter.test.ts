@@ -2,6 +2,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { EvidenceItem, HotItem } from '../src/types/hot.js';
 import { buildOpportunityDecisionV1 } from '../src/viewModels/opportunityDecisionAdapter.js';
+import {
+  APP_STORE_KEY_QUESTIONS,
+  GITHUB_KEY_QUESTIONS,
+  HACKER_NEWS_KEY_QUESTIONS,
+  MISSING_EXTERNAL_KEY_QUESTIONS,
+  keyQuestionsAreSafe,
+} from '../src/lib/opportunityValidationQuestions.js';
 
 function sampleEvidence(overrides: Partial<EvidenceItem> = {}): EvidenceItem {
   return {
@@ -465,5 +472,62 @@ describe('OpportunityDecisionV1 - Safe semantics', () => {
   it('does not include "趋势上升" wording', () => {
     const text = safeNarrativeText();
     assert.equal(text.includes('趋势上升'), false);
+  });
+});
+
+describe('OpportunityDecisionV1 - validation handoff questions', () => {
+  it('generates 3 App Store key questions with rule provenance', () => {
+    const decision = buildOpportunityDecisionV1(sampleItem());
+    assert.deepEqual(decision.validationHandoff.keyQuestions, [...APP_STORE_KEY_QUESTIONS]);
+    assert.equal(decision.validationHandoff.questionsProvenance, 'rule_derived');
+  });
+
+  it('generates 3 GitHub key questions', () => {
+    const decision = buildOpportunityDecisionV1(sampleItem({
+      platformId: 'GitHub',
+      evidence: [sampleEvidence({
+        source: 'GitHub',
+        type: 'developer_signal',
+        url: 'https://github.com/example/repo',
+        metadata: { stars: 1200, forks: 120 },
+      })],
+    }));
+    assert.deepEqual(decision.validationHandoff.keyQuestions, [...GITHUB_KEY_QUESTIONS]);
+  });
+
+  it('generates 3 Hacker News key questions', () => {
+    const decision = buildOpportunityDecisionV1(sampleItem({
+      platformId: 'Hacker News',
+      evidence: [sampleEvidence({
+        source: 'Hacker News',
+        type: 'community_signal',
+        url: 'https://news.ycombinator.com/item?id=123',
+        metadata: { points: 8, commentsCount: 2 },
+      })],
+    }));
+    assert.deepEqual(decision.validationHandoff.keyQuestions, [...HACKER_NEWS_KEY_QUESTIONS]);
+  });
+
+  it('uses missing external questions for knowledge-only signals', () => {
+    const decision = buildOpportunityDecisionV1(sampleItem({
+      platformId: 'HotPulse Market Knowledge',
+      evidence: [sampleEvidence({
+        source: 'HotPulse Market Knowledge',
+        type: 'industry_report',
+        url: null,
+        metadata: { knowledgeType: 'static_market_entry' },
+      })],
+    }));
+    assert.deepEqual(decision.validationHandoff.keyQuestions, [...MISSING_EXTERNAL_KEY_QUESTIONS]);
+  });
+
+  it('keeps key questions as safe questions, not conclusions', () => {
+    const decision = buildOpportunityDecisionV1(sampleItem());
+    assert.equal(decision.validationHandoff.keyQuestions.length, 3);
+    assert.equal(keyQuestionsAreSafe(decision.validationHandoff.keyQuestions), true);
+    const text = decision.validationHandoff.keyQuestions.join('|');
+    assert.equal(text.includes('需求旺盛'), false);
+    assert.equal(text.includes('趋势上升'), false);
+    assert.equal(text.includes('值得投入'), false);
   });
 });

@@ -28,6 +28,7 @@ import {
   uniqueLimitationCategoryKey,
 } from '../lib/opportunityDecisionRules';
 import { buildAnalyzeHrefFromOpportunity } from '../lib/opportunityAnalyzeHref';
+import { buildKeyValidationQuestions, keyQuestionsAreSafe } from '../lib/opportunityValidationQuestions';
 import { makeAction24hFallback, makeAction7dFallback, safeText, toScoreBand, verdictFromHotVerdict, type OpportunityDecisionVM, type StandardEvidenceItem, type StandardRiskItem } from './decisionViewModels';
 
 interface ObservationRow {
@@ -454,7 +455,10 @@ export function buildDecisionDataNotes(
   };
 }
 
-export function buildValidationHandoff(item: HotItem): OpportunityDecisionV1['validationHandoff'] {
+export function buildValidationHandoff(
+  item: HotItem,
+  observations: DecisionObservation[] = buildDecisionObservations(item),
+): OpportunityDecisionV1['validationHandoff'] {
   const productType = asNonEmptyString(item.productType) ?? asNonEmptyString(item.category);
   const targetMarket = asNonEmptyString(item.targetMarket);
   const analyzeHref = buildAnalyzeHrefFromOpportunity({
@@ -470,10 +474,14 @@ export function buildValidationHandoff(item: HotItem): OpportunityDecisionV1['va
     riskHint: '主要风险待验证',
   });
 
+  const keyQuestions = buildKeyValidationQuestions(observations, item.platformId).slice(0, 3);
+
   return {
     status: 'requires_user_context',
     statement: '需要结合目标用户、市场、预算、团队能力和资源条件，才能生成进入条件、停止条件与 24 小时/7 天验证方案。',
     analyzeHref: analyzeHref || undefined,
+    keyQuestions: keyQuestionsAreSafe(keyQuestions) ? keyQuestions : [],
+    questionsProvenance: 'rule_derived',
   };
 }
 
@@ -506,7 +514,7 @@ export function buildOpportunityDecisionV1(item: HotItem): OpportunityDecisionV1
     supportsClaims: buildSupportsClaims(item),
     limitations: buildLimitations(item, observations),
     risks,
-    validationHandoff: buildValidationHandoff(item),
+    validationHandoff: buildValidationHandoff(item, observations),
     dataNotes: buildDecisionDataNotes(item, observations, risks),
   };
 }

@@ -1,5 +1,19 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
+import type { HotItem } from '../src/types/hot.js';
+import {
+  buildDecisionCardView,
+  buildDecisionFromItem,
+  buildCardBoundaryTexts,
+  buildRiskReferenceItems,
+  cardViewExcludesForbiddenTerms,
+  getObservedMetricsFromDecision,
+  mapRiskCategoryLabel,
+} from '../src/pages/OpportunitiesPage/decisionPresentation.js';
+import { buildOpportunityDecisionV1 } from '../src/viewModels/opportunityDecisionAdapter.js';
 import {
   buildAnalyzeHrefFromOpportunity,
   buildPublicAnalyzeQuery,
@@ -17,6 +31,44 @@ import {
   PUBLIC_SIGNAL_PRESETS,
   PUBLIC_SORT_OPTIONS,
 } from '../src/pages/OpportunitiesPage/presentation.js';
+
+const testDir = dirname(fileURLToPath(import.meta.url));
+const clientRoot = join(testDir, '..');
+
+function sampleItem(overrides: Partial<HotItem> = {}): HotItem {
+  return {
+    id: 'opp-1',
+    platformId: 'App Store',
+    title: 'Perplexity - AI Search',
+    category: 'AI',
+    heat: 70,
+    interaction: 60,
+    valueScore: 66,
+    verdict: 'watch',
+    summary: 'sample summary',
+    tags: ['ai'],
+    publishedAt: '2026-06-20T01:00:00.000Z',
+    targetMarket: '日本',
+    productType: 'AI 应用',
+    paymentRisk: 42,
+    localizationRisk: 55,
+    competitionRisk: 61,
+    complianceRisk: 40,
+    acquisitionRisk: 47,
+    aiCostRisk: 52,
+    dataTier: 'real',
+    evidence: [{
+      title: 'App Store evidence',
+      source: 'App Store',
+      type: 'app_store_signal',
+      evidenceStrength: 'medium',
+      retrievedAt: '2026-06-20T02:00:00.000Z',
+      url: 'https://apps.apple.com/app/id123',
+      metadata: { rating: 4.83, ratingCount: 477572 },
+    }],
+    ...overrides,
+  };
+}
 
 type AnalyzeHrefInput = Parameters<typeof buildAnalyzeHrefFromOpportunity>[0];
 
@@ -313,6 +365,174 @@ describe('Provenance-first: internal valueScore sort preserved', () => {
     const sorted = sortByInternalScore(items);
     assert.equal(sorted[0].id, 'high');
     assert.equal(sorted[2].id, 'low');
+  });
+});
+
+describe('Round 4F.1D-C1: decision brief presentation', () => {
+  it('buildDecisionFromItem calls buildOpportunityDecisionV1', () => {
+    const decision = buildDecisionFromItem(sampleItem());
+    const direct = buildOpportunityDecisionV1(sampleItem());
+    assert.equal(decision.identity.signalTitle, direct.identity.signalTitle);
+    assert.equal(decision.supportsClaims.length, direct.supportsClaims.length);
+  });
+
+  it('Opportunities page wires decision card and drawer components', () => {
+    const pageSource = readFileSync(join(clientRoot, 'src/pages/OpportunitiesPage/index.tsx'), 'utf8');
+    const cardSource = readFileSync(join(clientRoot, 'src/pages/OpportunitiesPage/components/OpportunityDecisionCard.tsx'), 'utf8');
+    assert.match(pageSource, /OpportunityDecisionCard/);
+    assert.match(pageSource, /OpportunityDecisionDrawer/);
+    assert.equal(cardSource.includes('valueScore'), false);
+    assert.equal(cardSource.includes('verdict'), false);
+  });
+
+  it('decision card view excludes valueScore and verdict from rendered fields', () => {
+    const view = buildDecisionCardView(sampleItem());
+    assert.equal(cardViewExcludesForbiddenTerms(view), true);
+    const serialized = JSON.stringify(view);
+    assert.equal(serialized.includes('"valueScore"'), false);
+    assert.equal(serialized.includes('"verdict"'), false);
+    assert.equal(serialized.includes('watch'), false);
+  });
+
+  it('decision card shows observed metrics from decision', () => {
+    const view = buildDecisionCardView(sampleItem());
+    assert.equal(view.metrics.length > 0, true);
+    assert.match(view.metrics[0].primary, /4\.83/);
+  });
+
+  it('decision card shows first support claim and key limitation', () => {
+    const view = buildDecisionCardView(sampleItem());
+    assert.match(view.confirmText, /4\.83|评分/);
+    assert.equal(view.cannotConfirmText.length > 0, true);
+    assert.equal(view.cannotConfirmText, view.decision.validationHandoff.keyQuestions[0]);
+    assert.equal(view.keyUnknownText, view.decision.validationHandoff.keyQuestions[0]);
+  });
+
+  it('HN points below 10 surfaces weak signal indicators', () => {
+    const view = buildDecisionCardView(sampleItem({
+      platformId: 'Hacker News',
+      evidence: [{
+        title: 'HN weak',
+        source: 'Hacker News',
+        type: 'community_signal',
+        evidenceStrength: 'low',
+        retrievedAt: '2026-06-20T02:00:00.000Z',
+        url: 'https://news.ycombinator.com/item?id=1',
+        metadata: { points: 2, commentsCount: 0 },
+      }],
+    }));
+    assert.equal(view.weakIndicators.includes('弱互动信号'), true);
+    assert.equal(view.metrics[0]?.isWeak, true);
+  });
+
+  it('knowledge_base observations are not included in card metrics', () => {
+    const decision = buildDecisionFromItem(sampleItem({
+      evidence: [
+        {
+          title: 'KB',
+          source: 'HotPulse Market Knowledge',
+          type: 'industry_report',
+          evidenceStrength: 'medium',
+          retrievedAt: '2026-06-20T02:00:00.000Z',
+          url: null,
+          metadata: { knowledgeType: 'static_market_entry' },
+        },
+        {
+          title: 'App Store evidence',
+          source: 'App Store',
+          type: 'app_store_signal',
+          evidenceStrength: 'medium',
+          retrievedAt: '2026-06-20T02:00:00.000Z',
+          url: 'https://apps.apple.com/app/id123',
+          metadata: { rating: 4.83, ratingCount: 477572 },
+        },
+      ],
+    }));
+    const metrics = getObservedMetricsFromDecision(decision);
+    assert.equal(metrics.length, 1);
+    assert.equal(metrics[0].sourceName, 'App Store');
+  });
+
+  it('decision detail includes supportsClaims, limitations, and risk basis', () => {
+    const decision = buildDecisionFromItem(sampleItem());
+    assert.equal(decision.supportsClaims.length > 0, true);
+    assert.equal(decision.limitations.length > 0, true);
+    if (decision.risks.length > 0) {
+      assert.equal(decision.risks[0].basis.length > 0, true);
+    }
+  });
+
+  it('analyze CTA uses shared validationHandoff analyzeHref', () => {
+    const view = buildDecisionCardView(sampleItem());
+    const decision = buildDecisionFromItem(sampleItem());
+    assert.equal(view.analyzeHref, decision.validationHandoff.analyzeHref);
+    assert.match(view.analyzeHref ?? '', /^\/analyze\?/);
+  });
+
+  it('mock and fallback tiers surface demo indicators', () => {
+    const mockView = buildDecisionCardView(sampleItem({ dataTier: 'mock' }));
+    const fallbackView = buildDecisionCardView(sampleItem({ dataTier: 'fallback' }));
+    assert.equal(mockView.weakIndicators.includes('演示样本'), true);
+    assert.equal(fallbackView.weakIndicators.includes('降级样本'), true);
+  });
+
+  it('empty supportsClaims uses transparent boundary fallback copy', () => {
+    const decision = buildDecisionFromItem(sampleItem({ evidence: [] }));
+    assert.equal(decision.supportsClaims.length, 0);
+    const boundary = buildCardBoundaryTexts(decision);
+    assert.equal(
+      boundary.confirmText,
+      '当前没有具备原始链接和有效采集时间的外部观测，因此无法形成可追溯陈述。',
+    );
+  });
+
+  it('drawer collapsible sections expose aria-expanded bindings', () => {
+    const drawerSource = readFileSync(
+      join(clientRoot, 'src/pages/OpportunitiesPage/components/OpportunityDecisionDrawer.tsx'),
+      'utf8',
+    );
+    assert.match(drawerSource, /aria-expanded=\{knowledgeExpanded\}/);
+    assert.match(drawerSource, /aria-expanded=\{dataNotesExpanded\}/);
+    assert.match(drawerSource, /aria-controls=\{kbContentId\}/);
+    assert.match(drawerSource, /aria-controls=\{dataNotesId\}/);
+  });
+
+  it('drawer collapsible content is conditionally rendered, not only aria-toggled', () => {
+    const drawerSource = readFileSync(
+      join(clientRoot, 'src/pages/OpportunitiesPage/components/OpportunityDecisionDrawer.tsx'),
+      'utf8',
+    );
+    assert.match(drawerSource, /knowledgeExpanded \? \(/);
+    assert.match(drawerSource, /dataNotesExpanded \? \(/);
+    assert.match(drawerSource, /event\.stopPropagation\(\)/);
+  });
+
+  it('drawer no longer renders generic risks as main risk cards by default', () => {
+    const drawerSource = readFileSync(
+      join(clientRoot, 'src/pages/OpportunitiesPage/components/OpportunityDecisionDrawer.tsx'),
+      'utf8',
+    );
+    assert.equal(drawerSource.includes('主要风险及依据'), false);
+    assert.match(drawerSource, /规则风险参考/);
+  });
+
+  it('risk references translate categories and filter rule_flag', () => {
+    const decision = buildDecisionFromItem(sampleItem({
+      riskFlags: ['rule_flag: internal', '支付路径待验证'],
+    }));
+    const references = buildRiskReferenceItems([
+      { id: 'rule', category: 'rule_flag', level: 'low', statement: 'internal', basis: 'internal', provenance: 'rule_derived' },
+      ...decision.risks,
+    ]);
+    assert.equal(references.length <= 2, true);
+    assert.equal(references.some((risk) => risk.categoryLabel === 'rule_flag'), false);
+    assert.equal(mapRiskCategoryLabel('payment'), '支付路径');
+    assert.equal(references.some((risk) => risk.categoryLabel === '支付路径'), true);
+  });
+
+  it('decision card key unknown uses the first validation question', () => {
+    const view = buildDecisionCardView(sampleItem());
+    assert.equal(view.cannotConfirmText, view.decision.validationHandoff.keyQuestions[0]);
   });
 });
 

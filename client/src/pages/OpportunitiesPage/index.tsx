@@ -12,21 +12,17 @@ import { AppShell } from '../../components/layout/AppShell';
 import { TopNav } from '../../components/layout/TopNav';
 import type { EvidenceItem, EvidenceStrength, HotItem, ProviderStats } from '../../types/hot';
 import {
-  getCardObservations,
-  getDrawerObservedRows,
-  getKnowledgeBaseEntries,
   mapDataTierLabel,
   pickCardPrimarySource,
   PUBLIC_SIGNAL_PRESETS,
   PUBLIC_SORT_OPTIONS,
-  RISK_PROVENANCE_LABEL,
-  RISK_RULE_DISCLAIMER,
-  shouldShowMarket,
   sortByInternalScore,
   type PublicSignalPreset,
   type PublicSortKey,
 } from './presentation';
 import { buildAnalyzeHrefBySource, buildAnalyzeHrefFromOpportunity } from '../../lib/opportunityAnalyzeHref';
+import { OpportunityDecisionCard } from './components/OpportunityDecisionCard';
+import { OpportunityDecisionDrawer } from './components/OpportunityDecisionDrawer';
 import styles from './OpportunitiesPage.module.css';
 
 type DataSource = OpportunitiesDataSource;
@@ -162,20 +158,6 @@ function bestEvidenceStrength(evidence: EvidenceItem[]) {
 function compactText(value: string | undefined, fallback: string, limit = 58) {
   const text = value?.replace(/\s+/g, ' ').trim() || fallback;
   return text.length > limit ? `${text.slice(0, limit)}...` : text;
-}
-
-function safeExternalUrl(value?: string | null) {
-  const raw = value?.trim();
-  if (!raw) return null;
-
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-    if (url.hostname === 'example.com' || url.hostname.endsWith('.example.com')) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
 }
 
 function riskReason(item: HotItem) {
@@ -550,7 +532,6 @@ export function OpportunitiesPage() {
               loading={isInitialLoading}
               emptyTitle="没有匹配的机会"
               emptyCopy="当前筛选组合没有结果，可以清除筛选或切换到市场信号榜查看同一批数据。"
-              dataSource={dataSource}
               onSelect={setSelectedId}
             />
           </section>
@@ -580,13 +561,12 @@ export function OpportunitiesPage() {
               loading={isInitialLoading}
               emptyTitle="当前榜单暂无结果"
               emptyCopy="该榜单只展示有真实字段支撑的排序结果，不使用随机数或静态趋势值。"
-              dataSource={dataSource}
               onSelect={setSelectedId}
             />
           </section>
         )}
 
-        {selected ? <OpportunityDrawer key={selected.id} opportunity={selected} dataSource={dataSource} onClose={() => setSelectedId(null)} /> : null}
+        {selected ? <OpportunityDecisionDrawer key={selected.id} item={selected.item} onClose={() => setSelectedId(null)} /> : null}
       </div>
     </AppShell>
   );
@@ -597,14 +577,12 @@ function OpportunityGrid({
   loading,
   emptyTitle,
   emptyCopy,
-  dataSource,
   onSelect,
 }: {
   items: RadarOpportunity[];
   loading: boolean;
   emptyTitle: string;
   emptyCopy: string;
-  dataSource: DataSource;
   onSelect: (id: string) => void;
 }) {
   if (loading) {
@@ -627,213 +605,14 @@ function OpportunityGrid({
   }
 
   return (
-    <div className={styles.cardGrid}>
-      {items.map((opportunity) => {
-        const observations = getCardObservations(opportunity.evidence);
-        const showProductType = opportunity.productType !== '产品类型待确认';
-        const showMarket = shouldShowMarket(opportunity.targetMarket);
-        return (
-          <article key={opportunity.id} className={styles.opportunityCard}>
-            {/* Layer 1: external source + data identity */}
-            <div className={styles.cardSource}>
-              <span className={styles.cardSourceName}>{opportunity.sourceLabel}</span>
-              <span className={styles.cardTierDot} data-tier={opportunity.dataTier}>
-                ● {mapDataTierLabel(opportunity.dataTier)}
-              </span>
-            </div>
-
-            {/* Layer 2: title */}
-            <h2>{opportunity.title}</h2>
-
-            {/* Layer 3: context tags — max 2, hide Global/待确认 */}
-            {(showProductType || showMarket) && (
-              <div className={styles.badgeRow}>
-                {showProductType && <span>{opportunity.productType}</span>}
-                {showMarket && <span>{opportunity.targetMarket}</span>}
-              </div>
-            )}
-
-            {/* Layer 4: external observations */}
-            <div className={styles.cardObservations}>
-              <span className={styles.cardObsLabel}>外部观测</span>
-              {observations.length > 0
-                ? observations.map((obs, i) =>
-                    obs.metricsLine ? (
-                      <span key={i} className={styles.cardObsMetrics}>{obs.metricsLine}</span>
-                    ) : obs.fallbackTitle ? (
-                      <span key={i} className={styles.cardObsFallback}>{obs.fallbackTitle}</span>
-                    ) : null,
-                  )
-                : <span className={styles.cardObsFallback}>{opportunity.positiveReason}</span>}
-            </div>
-
-            {/* Layer 5: unverified limitations + CTA */}
-            <div className={styles.cardRisk}>
-              <span className={styles.cardRiskHeader}>⚠ 待验证限制</span>
-              <p className={styles.cardRiskText}>
-                {opportunity.riskReason}
-                <span className={styles.ruleTag}> · {RISK_PROVENANCE_LABEL}</span>
-              </p>
-            </div>
-
-            <div className={styles.cardFooter}>
-              <button type="button" onClick={() => onSelect(opportunity.id)}>查看详情</button>
-              <a href={buildAnalyzeHref(opportunity, dataSource)}>评估是否适合我 →</a>
-            </div>
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
-function OpportunityDrawer({
-  opportunity,
-  dataSource,
-  onClose,
-}: {
-  opportunity: RadarOpportunity;
-  dataSource: DataSource;
-  onClose: () => void;
-}) {
-  const [isKnowledgeExpanded, setIsKnowledgeExpanded] = useState(false);
-
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
-
-  const detailDataTier = mapDataTierLabel(opportunity.dataTier);
-  const observedRows = getDrawerObservedRows(opportunity.evidence);
-  const kbEntries = getKnowledgeBaseEntries(opportunity.evidence);
-  const productType = opportunity.item.productType?.trim() || opportunity.item.category || '';
-  const showProductType = productType && productType !== '产品类型待确认';
-  const kbContentId = `knowledge-content-${opportunity.id}`;
-
-  return (
-    <div className={styles.drawerBackdrop} role="presentation">
-      <aside className={styles.drawer} aria-label="机会详情">
-
-        {/* Header — flex: 0 0 auto, never scrolls */}
-        <header className={styles.drawerHeader}>
-          <div>
-            <span className={styles.eyebrow}>OPPORTUNITY DETAIL</span>
-            <h2>{opportunity.title}</h2>
-            {showProductType && (
-              <span className={styles.productTypeTag}>{productType}</span>
-            )}
-            <div className={styles.drawerHeaderMeta}>
-              <span>{opportunity.sourceLabel}</span>
-              <span className={styles.metaSep}>·</span>
-              <span className={styles.drawerTierLabel} data-tier={opportunity.dataTier}>
-                ● {detailDataTier}
-              </span>
-              <span className={styles.metaSep}>·</span>
-              <span>{formatTime(opportunity.retrievedAt)}</span>
-            </div>
-          </div>
-          <button type="button" onClick={onClose} aria-label="关闭详情">×</button>
-        </header>
-
-        {/* Scrollable content area — flex: 1 1 auto */}
-        <div className={styles.drawerContent}>
-
-          {/* Observed external data zone — white */}
-          <div className={styles.drawerObsZone}>
-            <div className={styles.drawerObsHeader}>
-              <span>外部观测</span>
-              <span className={styles.provenanceTag}>
-                外部可验证<span className={styles.provenanceSub}> · observed</span>
-              </span>
-            </div>
-            {observedRows.length > 0
-              ? observedRows.map((row, i) => {
-                  const safeUrl = safeExternalUrl(row.rawUrl);
-                  return (
-                    <div key={i} className={styles.drawerObsRow}>
-                      <span className={styles.drawerObsSource}>{row.sourceName}</span>
-                      <span className={`${styles.drawerObsValue}${row.isWeakSignal ? ` ${styles.drawerObsWeak}` : ''}`}>
-                        {row.primaryValue}
-                      </span>
-                      {row.secondaryValue && (
-                        <span className={styles.drawerObsSub}>{row.secondaryValue}</span>
-                      )}
-                      {safeUrl && (
-                        <a href={safeUrl} target="_blank" rel="noreferrer" className={styles.drawerObsLink}>
-                          打开原始来源 ↗
-                        </a>
-                      )}
-                    </div>
-                  );
-                })
-              : <p className={styles.drawerObsFallback}>{opportunity.positiveReason}</p>}
-          </div>
-
-          {/* Unverified limitations zone — light amber */}
-          <div className={styles.drawerRiskZone}>
-            <div className={styles.drawerRiskHeader}>
-              <span>待验证限制</span>
-              <span className={styles.provenanceTagWarn}>{RISK_PROVENANCE_LABEL}</span>
-            </div>
-            <div className={styles.drawerRiskItem}>
-              <span className={styles.drawerRiskIcon}>⚠</span>
-              <div>
-                <p className={styles.drawerRiskText}>{opportunity.riskReason}</p>
-                <p className={styles.drawerRiskDisclaimer}>{RISK_RULE_DISCLAIMER}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Knowledge base zone — header always visible, content collapsed on mobile */}
-          {kbEntries.length > 0 && (
-            <section className={styles.knowledgeSection}>
-              <div className={styles.knowledgeHeader}>
-                <span className={styles.provenanceTagGray}>
-                  内部知识库<span className={styles.provenanceSub}> · knowledge_base</span>
-                </span>
-                <span>系统内部补充</span>
-                <button
-                  type="button"
-                  className={styles.knowledgeToggle}
-                  aria-expanded={isKnowledgeExpanded}
-                  aria-controls={kbContentId}
-                  onClick={() => setIsKnowledgeExpanded((v) => !v)}
-                >
-                  {isKnowledgeExpanded ? '收起内部补充' : '展开内部补充'}
-                </button>
-              </div>
-              <div
-                id={kbContentId}
-                className={styles.knowledgeContent}
-                data-expanded={isKnowledgeExpanded ? 'true' : 'false'}
-              >
-                {kbEntries.map((entry, i) => (
-                  <div key={i} className={styles.kbRow}>
-                    <span className={styles.kbRowTitle}>{entry.title}</span>
-                    <span className={styles.kbRowMeta}>用于辅助市场进入判断</span>
-                    <span className={styles.kbRowMeta}>无外部链接</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-        </div>
-
-        {/* Footer — flex: 0 0 auto, always at viewport bottom */}
-        <footer className={styles.drawerFooter}>
-          <a className={styles.primaryButton} href={buildAnalyzeHref(opportunity, dataSource)}>
-            评估是否适合我 →
-          </a>
-          <button className={styles.secondaryButton} type="button" onClick={onClose}>
-            返回机会列表
-          </button>
-        </footer>
-
-      </aside>
+    <div className={styles.decisionQueue} aria-label="信号评审队列">
+      {items.map((opportunity) => (
+        <OpportunityDecisionCard
+          key={opportunity.id}
+          item={opportunity.item}
+          onOpenBrief={() => onSelect(opportunity.id)}
+        />
+      ))}
     </div>
   );
 }
