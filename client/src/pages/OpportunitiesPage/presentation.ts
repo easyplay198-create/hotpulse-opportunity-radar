@@ -231,4 +231,3 @@ export function getKnowledgeBaseEntries(evidence: EvidenceWithTitle[]): KBEntry[
       title: ev.title?.trim() || '市场知识库',
     }));
 }
-

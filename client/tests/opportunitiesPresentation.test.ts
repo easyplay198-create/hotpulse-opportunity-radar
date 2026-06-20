@@ -535,4 +535,3 @@ describe('Round 4F.1D-C1: decision brief presentation', () => {
     assert.equal(view.cannotConfirmText, view.decision.validationHandoff.keyQuestions[0]);
   });
 });
-
