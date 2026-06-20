@@ -399,3 +399,73 @@ test('mock response does not create a real snapshot or cursor pageInfo', async (
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('legacy real API returns stable unique item ids', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const href = String(url);
+    if (href.startsWith('http://127.0.0.1')) return originalFetch(url);
+    if (href.includes('hn.algolia.com')) {
+      return new Response(JSON.stringify({
+        hits: Array.from({ length: 20 }, (_, index) => ({
+          objectID: `${encodeURIComponent(href).slice(0, 12)}-${index}`,
+          title: `HN AI tool ${index}`,
+          url: `https://example.com/hn/${encodeURIComponent(href)}/${index}`,
+          points: 120,
+          num_comments: 30,
+          created_at: '2026-06-13T00:00:00.000Z',
+        })),
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (href.includes('itunes.apple.com')) {
+      return new Response(JSON.stringify({
+        results: Array.from({ length: 25 }, (_, index) => ({
+          trackId: Number(`${href.length}${index}`),
+          trackName: `App Store AI ${href.length}-${index}`,
+          description: 'AI productivity app',
+          trackViewUrl: `https://apps.apple.com/app/${href.length}-${index}`,
+          averageUserRating: 4.6,
+          userRatingCount: 5000,
+          currentVersionReleaseDate: '2026-06-13T00:00:00.000Z',
+          releaseDate: '2026-01-01T00:00:00.000Z',
+          primaryGenreName: 'Productivity',
+          formattedPrice: 'Free',
+        })),
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (href.includes('api.github.com')) {
+      return new Response(JSON.stringify({
+        items: Array.from({ length: 10 }, (_, index) => ({
+          id: Number(`${href.length}${index}`),
+          full_name: `owner/repo-${href.length}-${index}`,
+          name: `repo-${index}`,
+          description: 'AI developer tool',
+          html_url: `https://github.com/owner/repo-${href.length}-${index}`,
+          stargazers_count: 1000,
+          forks_count: 100,
+          open_issues_count: 10,
+          updated_at: '2026-06-13T00:00:00.000Z',
+          created_at: '2026-01-01T00:00:00.000Z',
+          language: 'TypeScript',
+        })),
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ articles: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+
+  const server = app.listen(0);
+  try {
+    const { port } = server.address();
+    const response = await fetch(`http://127.0.0.1:${port}/api/opportunities?source=real`);
+    const data = await response.json();
+    const ids = data.items.map((item) => item.id);
+
+    assert.equal(response.status, 200);
+    assert.equal(data.count, ids.length);
+    assert.equal(ids.length, 50);
+    assert.equal(new Set(ids).size, ids.length);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    globalThis.fetch = originalFetch;
+  }
+});

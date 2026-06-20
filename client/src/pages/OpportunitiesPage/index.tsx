@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { fetchOpportunities } from '../../api/fetchOpportunities';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { fetchOpportunities, type OpportunitiesResponse } from '../../api/fetchOpportunities';
 import { buildHotspotListFromItems, getHotspotList } from '../../api/getHotspotList';
 import { resolveResponseDataTierOrThrow } from '../../api/getHotspotListFromApi';
 import {
@@ -23,6 +23,15 @@ import {
 import { buildAnalyzeHrefBySource, buildAnalyzeHrefFromOpportunity } from '../../lib/opportunityAnalyzeHref';
 import { OpportunityDecisionCard } from './components/OpportunityDecisionCard';
 import { OpportunityDecisionDrawer } from './components/OpportunityDecisionDrawer';
+import {
+  applyFirstPageSuccess,
+  applyLoadMoreError,
+  applyLoadMoreSuccess,
+  createInitialPaginationState,
+  loadedCountCopy,
+  uniqueAppendItems,
+  type OpportunityPaginationState,
+} from './paginationModel';
 import styles from './OpportunitiesPage.module.css';
 
 type DataSource = OpportunitiesDataSource;
@@ -62,6 +71,7 @@ interface FilterState {
 const ALL = 'all';
 const UNKNOWN_MARKET = '市场待确认';
 const OPPORTUNITIES_CACHE_KEY = 'hotpulse.opportunitiesCache.v1';
+const REAL_PAGE_SIZE = 20;
 
 function sourceFromSearch(): DataSource {
   const source = new URLSearchParams(window.location.search).get('source');
@@ -298,6 +308,20 @@ function buildAnalyzeHref(opportunity?: RadarOpportunity, source: DataSource = '
   });
 }
 
+function mapOpportunitiesResponse(raw: OpportunitiesResponse) {
+  const responseDataTier = resolveResponseDataTierOrThrow(raw.source);
+  const data = buildHotspotListFromItems(raw.items, {
+    dataTier: responseDataTier,
+  });
+  return {
+    dataTier: responseDataTier,
+    items: data.items,
+    providerStats: raw.providerStats,
+    generatedAt: raw.generatedAt,
+    pageInfo: raw.pageInfo,
+  };
+}
+
 export function OpportunitiesPage() {
   const initialSource = sourceFromSearch();
   const initialCache = readOpportunitiesCache(initialSource);
@@ -305,8 +329,10 @@ export function OpportunitiesPage() {
   const [providerStats, setProviderStats] = useState<ProviderStats | undefined>(() => initialCache?.providerStats);
   const [generatedAt, setGeneratedAt] = useState<string | undefined>(() => initialCache?.generatedAt ?? initialCache?.retrievedAt);
   const [dataSource, setDataSource] = useState<DataSource>(() => initialSource);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [pagination, setPagination] = useState<OpportunityPaginationState>(() => createInitialPaginationState(initialCache?.opportunities ?? []));
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [initialError, setInitialError] = useState<string | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [cacheNotice, setCacheNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<RadarTab>(() => initialTab());
   const [signalPreset, setSignalPreset] = useState<SignalPreset>('composite');
@@ -318,9 +344,13 @@ export function OpportunitiesPage() {
     market: ALL,
     sort: 'score',
   });
+  const requestGenerationRef = useRef(0);
+  const loadMoreInFlightRef = useRef(false);
 
   useEffect(() => {
     const requestedSource = sourceFromSearch();
+    const generation = requestGenerationRef.current + 1;
+    requestGenerationRef.current = generation;
     let cancelled = false;
     const load = async () => {
       const cached = readOpportunitiesCache(requestedSource);
@@ -336,13 +366,14 @@ export function OpportunitiesPage() {
         setDataSource(requestedSource);
       }
 
-      setLoading(true);
-      setError(null);
+      setInitialLoading(true);
+      setInitialError(null);
       setCacheNotice(null);
+      setPagination(createInitialPaginationState(cached?.opportunities ?? []));
       try {
         if (requestedSource === 'fallback') {
           const seed = await getHotspotList();
-          if (cancelled) return;
+          if (cancelled || requestGenerationRef.current !== generation) return;
           writeOpportunitiesCache({
             source: 'fallback',
             opportunities: seed.items,
@@ -351,16 +382,17 @@ export function OpportunitiesPage() {
           setItems(seed.items);
           setProviderStats(undefined);
           setGeneratedAt(undefined);
+          setPagination(createInitialPaginationState(seed.items));
           setDataSource('fallback');
           return;
         }
 
-        const raw = await fetchOpportunities(requestedSource === 'real' ? 'real' : undefined);
+        const raw = await fetchOpportunities(requestedSource === 'real' ? { source: 'real', limit: REAL_PAGE_SIZE } : undefined);
         const responseDataTier = resolveResponseDataTierOrThrow(raw.source);
         const data = buildHotspotListFromItems(raw.items, {
           dataTier: responseDataTier,
         });
-        if (cancelled) return;
+        if (cancelled || requestGenerationRef.current !== generation) return;
         const nextSource = responseDataTier;
         const retrievedAt = raw.generatedAt ?? new Date().toISOString();
         writeOpportunitiesCache({
@@ -373,35 +405,123 @@ export function OpportunitiesPage() {
         setItems(data.items);
         setProviderStats(raw.providerStats);
         setGeneratedAt(raw.generatedAt);
+        setPagination((current) => applyFirstPageSuccess(current, {
+          items: data.items,
+          pageInfo: raw.pageInfo,
+          providerStats: raw.providerStats,
+          generatedAt: raw.generatedAt,
+        }));
         setDataSource(nextSource);
       } catch (loadError) {
-        if (cancelled) return;
+        if (cancelled || requestGenerationRef.current !== generation) return;
         if (cached) {
           setItems(cached.opportunities);
           setProviderStats(cached.providerStats);
           setGeneratedAt(cached.generatedAt ?? cached.retrievedAt);
           setDataSource(cached.source);
+          setPagination(createInitialPaginationState(cached.opportunities));
           setCacheNotice('实时更新暂时失败，当前显示上次成功结果。');
           return;
         }
 
         const seed = await getHotspotList();
-        if (cancelled) return;
+        if (cancelled || requestGenerationRef.current !== generation) return;
         setItems(seed.items);
         setProviderStats(undefined);
         setGeneratedAt(undefined);
         setDataSource('fallback');
-        setError(loadError instanceof Error ? loadError.message : '机会数据加载失败');
+        setPagination(createInitialPaginationState(seed.items));
+        setInitialError(loadError instanceof Error ? loadError.message : '机会数据加载失败');
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && requestGenerationRef.current === generation) setInitialLoading(false);
       }
     };
 
     void load();
     return () => {
       cancelled = true;
+      requestGenerationRef.current += 1;
     };
   }, []);
+
+  const refreshSignalPool = async () => {
+    const generation = requestGenerationRef.current + 1;
+    requestGenerationRef.current = generation;
+    loadMoreInFlightRef.current = false;
+    setInitialLoading(true);
+    setInitialError(null);
+    setRefreshFailed(false);
+    setCacheNotice(null);
+    setPagination(createInitialPaginationState());
+
+    try {
+      const raw = await fetchOpportunities({ source: 'real', limit: REAL_PAGE_SIZE });
+      const mapped = mapOpportunitiesResponse(raw);
+      if (requestGenerationRef.current !== generation) return;
+      const retrievedAt = raw.generatedAt ?? new Date().toISOString();
+      writeOpportunitiesCache({
+        source: mapped.dataTier,
+        opportunities: mapped.items,
+        providerStats: raw.providerStats,
+        generatedAt: raw.generatedAt,
+        retrievedAt,
+      });
+      setItems(mapped.items);
+      setProviderStats(raw.providerStats);
+      setGeneratedAt(raw.generatedAt);
+      setDataSource(mapped.dataTier);
+      setPagination((current) => applyFirstPageSuccess(current, {
+        items: mapped.items,
+        pageInfo: mapped.pageInfo,
+        providerStats: raw.providerStats,
+        generatedAt: raw.generatedAt,
+      }));
+    } catch (refreshError) {
+      if (requestGenerationRef.current !== generation) return;
+      setInitialError(refreshError instanceof Error ? refreshError.message : '机会数据加载失败');
+      setRefreshFailed(true);
+    } finally {
+      if (requestGenerationRef.current === generation) setInitialLoading(false);
+    }
+  };
+
+  const loadMoreSignals = async () => {
+    const cursor = pagination.nextCursor;
+    if (!cursor || pagination.loadMoreLoading || loadMoreInFlightRef.current) return;
+    const generation = requestGenerationRef.current;
+    loadMoreInFlightRef.current = true;
+    setPagination((current) => ({
+      ...current,
+      loadMoreLoading: true,
+      loadMoreError: null,
+      cursorExpired: false,
+      invalidCursor: false,
+    }));
+
+    try {
+      const raw = await fetchOpportunities({ source: 'real', cursor });
+      const mapped = mapOpportunitiesResponse(raw);
+      if (requestGenerationRef.current !== generation) return;
+      setPagination((current) => {
+        return applyLoadMoreSuccess(current, {
+          items: mapped.items,
+          pageInfo: mapped.pageInfo,
+          providerStats: raw.providerStats,
+          generatedAt: raw.generatedAt,
+        });
+      });
+      setItems((current) => uniqueAppendItems(current, mapped.items));
+      setProviderStats(raw.providerStats);
+      setGeneratedAt(raw.generatedAt ?? generatedAt);
+    } catch (loadMoreError) {
+      if (requestGenerationRef.current !== generation) return;
+      setPagination((current) => applyLoadMoreError(current, loadMoreError));
+    } finally {
+      if (requestGenerationRef.current === generation) {
+        loadMoreInFlightRef.current = false;
+      }
+    }
+  };
 
   const opportunities = useMemo(() => items.map(buildRadarOpportunity), [items]);
   const sourceOptions = useMemo(() => uniqueSorted(opportunities.flatMap((item) => item.sourceNames)), [opportunities]);
@@ -417,8 +537,10 @@ export function OpportunitiesPage() {
 
   const totalKnownSources = sourceOptions.length;
   const healthyProviders = providerEntries(providerStats).filter(([, stat]) => stat.ok).length;
-  const isInitialLoading = loading && items.length === 0;
-  const refreshNotice = loading && items.length > 0 ? '正在更新最新信号……' : null;
+  const isInitialLoading = initialLoading && items.length === 0;
+  const refreshNotice = initialLoading && items.length > 0 ? '正在更新最新信号……' : null;
+  const activeVisibleCount = tab === 'opportunities' ? filtered.length : signalItems.length;
+  const loadedCopy = loadedCountCopy(pagination, activeVisibleCount);
 
   const updateFilter = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {
     setFilter((current) => ({ ...current, [key]: value }));
@@ -469,10 +591,20 @@ export function OpportunitiesPage() {
           </aside>
         </section>
 
-        {error ? (
+        {initialError ? (
           <section className={styles.errorState} aria-live="polite">
-            <strong>API 加载失败，已切换到本地备用数据。</strong>
-            <span>{error}</span>
+            {refreshFailed ? (
+              <>
+                <strong>刷新失败，当前显示上次成功结果。</strong>
+                <span>{initialError}</span>
+                <button type="button" onClick={() => { void refreshSignalPool(); }}>重新刷新</button>
+              </>
+            ) : (
+              <>
+                <strong>API 加载失败，已切换到本地备用数据。</strong>
+                <span>{initialError}</span>
+              </>
+            )}
           </section>
         ) : null}
 
@@ -566,9 +698,82 @@ export function OpportunitiesPage() {
           </section>
         )}
 
+        <PaginationControls
+          pagination={pagination}
+          loadedCopy={loadedCopy}
+          filteredCount={activeVisibleCount}
+          onLoadMore={loadMoreSignals}
+          onRefresh={refreshSignalPool}
+        />
+
         {selected ? <OpportunityDecisionDrawer key={selected.id} item={selected.item} onClose={() => setSelectedId(null)} /> : null}
       </div>
     </AppShell>
+  );
+}
+
+function PaginationControls({
+  pagination,
+  loadedCopy,
+  filteredCount,
+  onLoadMore,
+  onRefresh,
+}: {
+  pagination: OpportunityPaginationState;
+  loadedCopy: string | null;
+  filteredCount: number;
+  onLoadMore: () => void;
+  onRefresh: () => void;
+}) {
+  if (!pagination.pageInfo) return null;
+
+  const error = pagination.loadMoreError;
+  const isFilteredEmptyWithMore = filteredCount === 0 && pagination.items.length > 0 && pagination.hasMore;
+
+  return (
+    <section className={styles.loadMorePanel} aria-live="polite">
+      {loadedCopy ? <p className={styles.loadMoreCount}>{loadedCopy}</p> : null}
+      {isFilteredEmptyWithMore ? (
+        <p className={styles.loadMoreHint}>当前已加载的信号中暂无匹配项，候选池仍有更多内容。</p>
+      ) : null}
+
+      {error?.kind === 'network' ? (
+        <div className={styles.loadMoreError}>
+          <span>更多信号加载失败，请重试</span>
+          <button type="button" onClick={onLoadMore} disabled={pagination.loadMoreLoading}>重新加载</button>
+        </div>
+      ) : null}
+
+      {error?.kind === 'invalid_cursor' ? (
+        <div className={styles.loadMoreError}>
+          <span>分页状态异常，请刷新信号池</span>
+          <button type="button" onClick={onRefresh}>刷新信号池</button>
+        </div>
+      ) : null}
+
+      {error?.kind === 'cursor_expired' ? (
+        <div className={styles.loadMoreError}>
+          <span>当前信号快照已过期</span>
+          <small>为避免新旧数据顺序混合，需要重新获取最新信号池。</small>
+          <button type="button" onClick={onRefresh}>刷新信号池</button>
+        </div>
+      ) : null}
+
+      {!error && pagination.hasMore ? (
+        <button
+          className={styles.loadMoreButton}
+          type="button"
+          onClick={onLoadMore}
+          disabled={pagination.loadMoreLoading}
+        >
+          {pagination.loadMoreLoading ? '正在加载更多信号…' : '加载更多信号'}
+        </button>
+      ) : null}
+
+      {!error && !pagination.hasMore ? (
+        <p className={styles.loadMoreDone}>已加载全部信号</p>
+      ) : null}
+    </section>
   );
 }
 

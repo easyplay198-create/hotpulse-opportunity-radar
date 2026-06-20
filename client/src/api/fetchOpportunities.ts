@@ -81,6 +81,18 @@ export interface FetchOpportunitiesOptions {
   cursor?: string;
 }
 
+export class OpportunitiesApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = 'OpportunitiesApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
 const REAL_SOURCE_TIMEOUT_MS = 70_000;
 const DEFAULT_TIMEOUT_MS = 20_000;
 
@@ -123,7 +135,16 @@ export async function fetchOpportunities(input?: 'hn' | 'real' | FetchOpportunit
   const response = await fetchWithTimeout(`${base}/api/opportunities${query}`, timeoutMs);
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch opportunities: ${response.status}`);
+    let code: string | undefined;
+    let message = `Failed to fetch opportunities: ${response.status}`;
+    try {
+      const errorPayload = (await response.json()) as { error?: unknown; message?: unknown };
+      if (typeof errorPayload.error === 'string') code = errorPayload.error;
+      if (typeof errorPayload.message === 'string') message = errorPayload.message;
+    } catch {
+      // Keep the transport-level fallback message.
+    }
+    throw new OpportunitiesApiError(message, response.status, code);
   }
 
   const data = (await response.json()) as OpportunitiesResponse;
