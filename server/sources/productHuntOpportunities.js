@@ -1,4 +1,5 @@
 const PRODUCT_HUNT_GRAPHQL = 'https://api.producthunt.com/v2/api/graphql';
+const PRODUCT_HUNT_PROVIDER_LIMIT = 10;
 
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
@@ -120,10 +121,25 @@ function toOpportunity(node, idx) {
 async function fetchProductHuntPosts() {
   const token = getToken();
   if (!token) {
-    return { ok: false, skippedReason: 'PRODUCT_HUNT_TOKEN is not configured', items: [] };
+    return {
+      ok: false,
+      skippedReason: 'PRODUCT_HUNT_TOKEN is not configured',
+      errorClass: 'not_configured',
+      configured: false,
+      items: [],
+      providerMeta: {
+        configured: false,
+        requestedCount: 0,
+        rawCount: 0,
+        mappedCount: 0,
+        validCount: 0,
+        droppedCount: 0,
+        dropReasons: {},
+      },
+    };
   }
 
-  const query = `query { posts(first: 10) { edges { node { id name tagline description url website votesCount commentsCount createdAt topics { edges { node { name } } } } } } }`;
+  const query = `query { posts(first: ${PRODUCT_HUNT_PROVIDER_LIMIT}) { edges { node { id name tagline description url website votesCount commentsCount createdAt topics { edges { node { name } } } } } } }`;
   const resp = await fetch(PRODUCT_HUNT_GRAPHQL, {
     method: 'POST',
     headers: {
@@ -147,17 +163,35 @@ export async function getProductHuntOpportunities() {
     return {
       ok: false,
       skippedReason: result.skippedReason,
+      errorClass: result.errorClass,
+      configured: result.configured,
+      providerMeta: result.providerMeta,
       items: [],
     };
   }
 
-  const items = result.items
-    .filter((node) => typeof node?.url === 'string' || typeof node?.website === 'string')
-    .slice(0, 10)
-    .map((node, idx) => toOpportunity(node, idx));
+  const mappableNodes = result.items
+    .filter((node) => typeof node?.url === 'string' || typeof node?.website === 'string');
+  const mappedItems = mappableNodes.map((node, idx) => toOpportunity(node, idx));
+  const items = mappedItems.slice(0, PRODUCT_HUNT_PROVIDER_LIMIT);
+  const dropReasons = {
+    ...(result.items.length - mappableNodes.length > 0 ? { missing_url: result.items.length - mappableNodes.length } : {}),
+    ...(mappedItems.length > PRODUCT_HUNT_PROVIDER_LIMIT ? { provider_quota: mappedItems.length - PRODUCT_HUNT_PROVIDER_LIMIT } : {}),
+  };
 
   return {
     ok: true,
+    providerMeta: {
+      configured: true,
+      requestedCount: PRODUCT_HUNT_PROVIDER_LIMIT,
+      rawCount: result.items.length,
+      deduplicatedCount: result.items.length,
+      mappedCount: mappedItems.length,
+      validCount: mappedItems.length,
+      selectedCount: items.length,
+      droppedCount: Object.values(dropReasons).reduce((sum, count) => sum + count, 0),
+      dropReasons,
+    },
     items,
   };
 }

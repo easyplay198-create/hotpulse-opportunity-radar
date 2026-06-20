@@ -1,4 +1,7 @@
 const GITHUB_SEARCH = 'https://api.github.com/search/repositories';
+const GITHUB_QUERIES = ['ai tool', 'developer tool', 'llm agent'];
+const GITHUB_PER_PAGE = 10;
+const GITHUB_PROVIDER_LIMIT = 15;
 
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
@@ -100,7 +103,7 @@ function toItem(repo, idx) {
 }
 
 async function fetchQuery(query) {
-  const url = `${GITHUB_SEARCH}?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=10`;
+  const url = `${GITHUB_SEARCH}?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=${GITHUB_PER_PAGE}`;
   const resp = await fetch(url, {
     headers: {
       'User-Agent': 'HotPulse-Market-Radar',
@@ -113,8 +116,7 @@ async function fetchQuery(query) {
 }
 
 export async function getGitHubOpportunities() {
-  const queries = ['ai tool', 'developer tool', 'llm agent'];
-  const groups = await Promise.all(queries.map((query) => fetchQuery(query)));
+  const groups = await Promise.all(GITHUB_QUERIES.map((query) => fetchQuery(query)));
   const merged = groups.flat();
 
   const dedup = new Map();
@@ -124,10 +126,30 @@ export async function getGitHubOpportunities() {
     dedup.set(key, repo);
   }
 
-  const items = [...dedup.values()]
-    .filter((repo) => typeof repo.html_url === 'string' && /^https?:\/\//i.test(repo.html_url))
-    .slice(0, 15)
-    .map((repo, idx) => toItem(repo, idx));
+  const mappableRecords = [...dedup.values()]
+    .filter((repo) => typeof repo.html_url === 'string' && /^https?:\/\//i.test(repo.html_url));
+  const mappedItems = mappableRecords.map((repo, idx) => toItem(repo, idx));
+  const items = mappedItems.slice(0, GITHUB_PROVIDER_LIMIT);
+
+  const dropReasons = {
+    ...(merged.length - dedup.size > 0 ? { duplicate: merged.length - dedup.size } : {}),
+    ...(dedup.size - mappableRecords.length > 0 ? { invalid_url: dedup.size - mappableRecords.length } : {}),
+    ...(mappedItems.length > GITHUB_PROVIDER_LIMIT ? { provider_quota: mappedItems.length - GITHUB_PROVIDER_LIMIT } : {}),
+  };
+
+  Object.defineProperty(items, 'providerMeta', {
+    enumerable: false,
+    value: {
+      requestedCount: GITHUB_QUERIES.length * GITHUB_PER_PAGE,
+      rawCount: merged.length,
+      deduplicatedCount: dedup.size,
+      mappedCount: mappedItems.length,
+      validCount: mappedItems.length,
+      selectedCount: items.length,
+      droppedCount: Object.values(dropReasons).reduce((sum, count) => sum + count, 0),
+      dropReasons,
+    },
+  });
 
   if (items.length < 5) {
     throw new Error(`GitHub opportunities insufficient: ${items.length}`);

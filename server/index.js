@@ -17,6 +17,8 @@ import { STREAM_EVENTS, STREAM_STAGES, summarizeProviderError } from './analyze/
 const app = express();
 const PORT = process.env.PORT || 3001;
 const CACHE_TTL_MS = 60 * 1000;
+const REAL_OPPORTUNITIES_HARD_LIMIT = 50;
+const REAL_PROVIDER_PRIMARY_LIMIT = 10;
 const opportunitiesCache = new Map();
 
 const allowedOrigins = (process.env.CLIENT_ORIGIN || '')
@@ -130,6 +132,271 @@ function enhanceWithMarketKnowledge(item) {
   };
 }
 
+function realOpportunityProviders() {
+  return [
+    { key: 'hackerNews', source: 'Hacker News', load: getHackerNewsOpportunities },
+    { key: 'appStore', source: 'Apple App Store', load: getAppStoreOpportunities },
+    { key: 'github', source: 'GitHub', load: getGitHubOpportunities },
+    { key: 'productHunt', source: 'Product Hunt', load: getProductHuntOpportunities },
+    { key: 'gdelt', source: 'GDELT', load: getGdeltOpportunities },
+  ];
+}
+
+function addDropReason(dropReasons, reason, count = 1) {
+  if (!reason || !Number.isFinite(count) || count <= 0) return;
+  dropReasons[reason] = (dropReasons[reason] || 0) + count;
+}
+
+function mergeDropReasons(...sources) {
+  const merged = {};
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    for (const [reason, count] of Object.entries(source)) {
+      addDropReason(merged, reason, Number(count));
+    }
+  }
+  return merged;
+}
+
+function dropReasonTotal(dropReasons) {
+  if (!dropReasons || typeof dropReasons !== 'object') return 0;
+  return Object.values(dropReasons).reduce((sum, count) => sum + (Number.isFinite(Number(count)) ? Number(count) : 0), 0);
+}
+
+function providerMetaFromValue(value) {
+  if (Array.isArray(value)) return value.providerMeta || {};
+  return value?.providerMeta || {};
+}
+
+function classifyProviderError(error) {
+  if (!error) return 'unknown';
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  if (/not configured|missing token|token is not configured|without token/.test(message)) return 'not_configured';
+  if (/429|rate.?limit|too many requests/.test(message)) return 'rate_limited';
+  if (/timeout|abort/.test(message)) return 'timeout';
+  if (/network|fetch failed|enotfound|econnreset|econnrefused|etimedout/.test(message)) return 'network_error';
+  if (/http|status|request failed/.test(message)) return 'http_error';
+  if (/invalid payload|invalid json|invalid response/.test(message)) return 'invalid_payload';
+  if (/mapping/.test(message)) return 'mapping_failed';
+  if (/no results|returned 0/.test(message)) return 'no_results';
+  if (/no usable|insufficient/.test(message)) return 'no_usable_items';
+  return 'unknown';
+}
+
+function redactSensitiveText(value) {
+  if (value === undefined || value === null) return value;
+  return String(value)
+    .replace(/(bearer\s+)[a-z0-9._~+/=-]+/gi, '$1[redacted]')
+    .replace(/(token=)[^&\s]+/gi, '$1[redacted]')
+    .replace(/(api[_-]?key=)[^&\s]+/gi, '$1[redacted]');
+}
+
+function resolveProviderRawItems(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  return [];
+}
+
+function countItemsByProvider(entries, provider) {
+  return entries.filter((entry) => entry.provider.key === provider.key || entry.item.source === provider.source).length;
+}
+
+function itemDeduplicationKey(item) {
+  const evidenceUrl = Array.isArray(item?.evidence)
+    ? item.evidence.find((ev) => isValidHttpUrl(ev?.url))?.url
+    : null;
+  const urlKey = evidenceUrl || item?.sourceUrl || item?.url;
+  if (isValidHttpUrl(urlKey)) return `url:${String(urlKey).trim().toLowerCase()}`;
+  if (typeof item?.title === 'string' && item.title.trim()) return `title:${item.title.trim().toLowerCase()}`;
+  return `id:${item?.source || 'unknown'}:${item?.id || 'missing-id'}`;
+}
+
+function dedupeCandidateEntries(entries) {
+  const seen = new Set();
+  const kept = [];
+  const dropped = [];
+  for (const entry of entries) {
+    const key = itemDeduplicationKey(entry.item);
+    if (seen.has(key)) {
+      dropped.push(entry);
+      continue;
+    }
+    seen.add(key);
+    kept.push(entry);
+  }
+  return { kept, dropped };
+}
+
+function buildProviderStat({
+  provider,
+  ok,
+  meta = {},
+  rawItems = [],
+  validItems = [],
+  latencyMs = 0,
+  error,
+  skippedReason,
+  serverDropReasons = {},
+}) {
+  const safeError = redactSensitiveText(error instanceof Error ? error.message : error);
+  const safeSkippedReason = redactSensitiveText(skippedReason);
+  const errorClass = meta.errorClass || (safeError || safeSkippedReason ? classifyProviderError(safeError || safeSkippedReason) : undefined);
+  const dropReasons = mergeDropReasons(meta.dropReasons, serverDropReasons);
+  const droppedCount = dropReasonTotal(dropReasons);
+  const configured = meta.configured ?? errorClass !== 'not_configured';
+  const rawCount = meta.rawCount ?? rawItems.length;
+  const mappedCount = meta.mappedCount ?? (ok ? rawItems.length : undefined);
+  const validCount = meta.validCount ?? (ok ? validItems.length : 0);
+
+  return {
+    ok,
+    configured,
+    requestedCount: meta.requestedCount,
+    rawCount,
+    mappedCount,
+    validCount,
+    deduplicatedCount: meta.deduplicatedCount,
+    selectedCount: 0,
+    finalCount: 0,
+    droppedCount,
+    dropReasons,
+    latencyMs: Math.max(0, latencyMs),
+    httpStatus: meta.httpStatus,
+    errorClass,
+    rateLimited: meta.rateLimited,
+    cacheHit: meta.cacheHit,
+    lastSuccessAt: ok ? new Date().toISOString() : meta.lastSuccessAt,
+    message: redactSensitiveText(meta.message) || safeSkippedReason || (safeError ? summarizeProviderError(safeError) : undefined),
+    fetchedCount: validCount,
+    returnedCount: 0,
+    ...(safeSkippedReason ? { skippedReason: summarizeProviderError(safeSkippedReason) } : {}),
+    ...(!ok && !safeSkippedReason ? { error: summarizeProviderError(safeError || 'fetch failed') } : {}),
+    provider: provider.source,
+  };
+}
+
+async function buildRealOpportunitiesWithProviders(providers, options = {}) {
+  const hardLimit = options.hardLimit ?? REAL_OPPORTUNITIES_HARD_LIMIT;
+  const primaryLimit = options.primaryLimit ?? REAL_PROVIDER_PRIMARY_LIMIT;
+  const providerStats = {};
+  const itemsByProvider = new Map();
+
+  const results = await Promise.all(providers.map(async (provider) => {
+    const startedAt = Date.now();
+    try {
+      const value = await Promise.resolve().then(() => provider.load());
+      const latencyMs = Date.now() - startedAt;
+      const meta = providerMetaFromValue(value);
+
+      if (value?.ok === false) {
+        providerStats[provider.key] = buildProviderStat({
+          provider,
+          ok: false,
+          meta: {
+            ...meta,
+            configured: value.configured ?? meta.configured,
+            errorClass: value.errorClass || meta.errorClass,
+            httpStatus: value.httpStatus ?? meta.httpStatus,
+            rateLimited: value.rateLimited ?? meta.rateLimited,
+          },
+          latencyMs,
+          error: value.error,
+          skippedReason: value.skippedReason,
+        });
+        itemsByProvider.set(provider.key, []);
+        return { provider, ok: false, validItems: [] };
+      }
+
+      const rawItems = resolveProviderRawItems(value);
+      const serverDropReasons = {};
+      const validItems = rawItems
+        .map((item) => {
+          const ensured = ensureEvidenceItem(item);
+          if (!ensured) addDropReason(serverDropReasons, 'invalid_shape');
+          return ensured;
+        })
+        .filter(Boolean)
+        .map(enhanceWithMarketKnowledge);
+
+      providerStats[provider.key] = buildProviderStat({
+        provider,
+        ok: true,
+        meta,
+        rawItems,
+        validItems,
+        latencyMs,
+        serverDropReasons,
+      });
+      itemsByProvider.set(provider.key, validItems);
+      return { provider, ok: true, validItems };
+    } catch (error) {
+      const latencyMs = Date.now() - startedAt;
+      providerStats[provider.key] = buildProviderStat({
+        provider,
+        ok: false,
+        latencyMs,
+        error,
+      });
+      itemsByProvider.set(provider.key, []);
+      return { provider, ok: false, validItems: [] };
+    }
+  }));
+
+  const primaryEntries = providers.flatMap((provider) => (itemsByProvider.get(provider.key) || [])
+    .slice(0, primaryLimit)
+    .map((item) => ({ provider, item })));
+  const remainingEntries = providers.flatMap((provider) => (itemsByProvider.get(provider.key) || [])
+    .slice(primaryLimit)
+    .map((item) => ({ provider, item })));
+  const candidateEntries = [...primaryEntries, ...remainingEntries]
+    .filter((entry) => Array.isArray(entry.item.evidence) && entry.item.evidence.length > 0);
+  const { kept: deduplicatedEntries, dropped: duplicateEntries } = dedupeCandidateEntries(candidateEntries);
+  for (const entry of duplicateEntries) {
+    const stat = providerStats[entry.provider.key];
+    if (!stat) continue;
+    addDropReason(stat.dropReasons, 'duplicate');
+    stat.droppedCount = dropReasonTotal(stat.dropReasons);
+  }
+  const finalEntries = deduplicatedEntries.slice(0, hardLimit);
+  const items = finalEntries.map((entry) => entry.item);
+
+  for (const provider of providers) {
+    const stat = providerStats[provider.key];
+    if (!stat) continue;
+    stat.selectedCount = countItemsByProvider(candidateEntries, provider);
+    stat.finalCount = countItemsByProvider(finalEntries, provider);
+    stat.returnedCount = stat.finalCount;
+    const deduplicatedCount = countItemsByProvider(deduplicatedEntries, provider);
+    if (deduplicatedCount > stat.finalCount) {
+      const globalLimitDropped = deduplicatedCount - stat.finalCount;
+      addDropReason(stat.dropReasons, 'global_limit', globalLimitDropped);
+      stat.droppedCount = dropReasonTotal(stat.dropReasons);
+      stat.errorClass = stat.errorClass || 'global_limit_truncated';
+    }
+  }
+
+  const numericProviderSum = (field) => Object.values(providerStats)
+    .reduce((sum, stat) => sum + (Number.isFinite(Number(stat[field])) ? Number(stat[field]) : 0), 0);
+
+  const poolStats = {
+    hardLimit,
+    rawCount: numericProviderSum('rawCount'),
+    mappedCount: numericProviderSum('mappedCount'),
+    validCount: numericProviderSum('validCount'),
+    deduplicatedCount: deduplicatedEntries.length,
+    primarySelectedCount: primaryEntries.length,
+    finalCount: items.length,
+  };
+
+  return {
+    source: 'real',
+    items,
+    providerStats,
+    poolStats,
+    allProvidersFailed: results.every((result) => !result.ok),
+  };
+}
+
 app.get('/api/opportunities', async (req, res) => {
   const mockMode = req.query.mock;
 
@@ -206,110 +473,8 @@ app.get('/api/opportunities', async (req, res) => {
         items,
       };
     } else if (source === 'real') {
-      const providerStats = {
-        hackerNews: { ok: true, fetchedCount: 0, returnedCount: 0 },
-        appStore: { ok: true, fetchedCount: 0, returnedCount: 0 },
-        github: { ok: true, fetchedCount: 0, returnedCount: 0 },
-        productHunt: { ok: true, fetchedCount: 0, returnedCount: 0 },
-        gdelt: { ok: true, fetchedCount: 0, returnedCount: 0 },
-      };
-
-      let hnValidItems = [];
-      let appStoreValidItems = [];
-      let githubValidItems = [];
-      let productHuntValidItems = [];
-      let gdeltValidItems = [];
-
-      try {
-        const hnItems = await getHackerNewsOpportunities();
-        hnValidItems = hnItems.map(ensureEvidenceItem).filter(Boolean).map(enhanceWithMarketKnowledge);
-        providerStats.hackerNews.fetchedCount = hnValidItems.length;
-      } catch (error) {
-        providerStats.hackerNews.ok = false;
-        providerStats.hackerNews.fetchedCount = 0;
-        providerStats.hackerNews.returnedCount = 0;
-        providerStats.hackerNews.error = error instanceof Error ? error.message : 'fetch failed';
-      }
-
-      try {
-        const appStoreItems = await getAppStoreOpportunities();
-        appStoreValidItems = appStoreItems.map(ensureEvidenceItem).filter(Boolean).map(enhanceWithMarketKnowledge);
-        providerStats.appStore.fetchedCount = appStoreValidItems.length;
-      } catch (error) {
-        providerStats.appStore.ok = false;
-        providerStats.appStore.fetchedCount = 0;
-        providerStats.appStore.returnedCount = 0;
-        providerStats.appStore.error = error instanceof Error ? error.message : 'fetch failed';
-      }
-
-      try {
-        const githubItems = await getGitHubOpportunities();
-        githubValidItems = githubItems.map(ensureEvidenceItem).filter(Boolean).map(enhanceWithMarketKnowledge);
-        providerStats.github.fetchedCount = githubValidItems.length;
-      } catch (error) {
-        providerStats.github.ok = false;
-        providerStats.github.fetchedCount = 0;
-        providerStats.github.returnedCount = 0;
-        providerStats.github.error = error instanceof Error ? error.message : 'fetch failed';
-      }
-
-      try {
-        const productHuntResult = await getProductHuntOpportunities();
-        if (productHuntResult.ok) {
-          productHuntValidItems = productHuntResult.items.map(ensureEvidenceItem).filter(Boolean).map(enhanceWithMarketKnowledge);
-          providerStats.productHunt.fetchedCount = productHuntValidItems.length;
-        } else {
-          providerStats.productHunt.ok = false;
-          providerStats.productHunt.skippedReason = productHuntResult.skippedReason;
-        }
-      } catch (error) {
-        providerStats.productHunt.ok = false;
-        providerStats.productHunt.fetchedCount = 0;
-        providerStats.productHunt.returnedCount = 0;
-        providerStats.productHunt.error = error instanceof Error ? error.message : 'fetch failed';
-      }
-
-      try {
-        const gdeltResult = await getGdeltOpportunities();
-        if (gdeltResult.ok) {
-          gdeltValidItems = gdeltResult.items.map(ensureEvidenceItem).filter(Boolean).map(enhanceWithMarketKnowledge);
-          providerStats.gdelt.fetchedCount = gdeltValidItems.length;
-        } else {
-          providerStats.gdelt.ok = false;
-          providerStats.gdelt.error = gdeltResult.skippedReason || 'GDELT skipped';
-        }
-      } catch (error) {
-        providerStats.gdelt.ok = false;
-        providerStats.gdelt.fetchedCount = 0;
-        providerStats.gdelt.returnedCount = 0;
-        providerStats.gdelt.error = error instanceof Error ? error.message : 'fetch failed';
-      }
-
-      const primaryItems = [
-        ...hnValidItems.slice(0, 10),
-        ...appStoreValidItems.slice(0, 10),
-        ...githubValidItems.slice(0, 10),
-        ...productHuntValidItems.slice(0, 10),
-        ...gdeltValidItems.slice(0, 10),
-      ];
-      const remainingItems = [
-        ...hnValidItems.slice(10),
-        ...appStoreValidItems.slice(10),
-        ...githubValidItems.slice(10),
-        ...productHuntValidItems.slice(10),
-        ...gdeltValidItems.slice(10),
-      ];
-      const items = [...primaryItems, ...remainingItems]
-        .filter((item) => item.evidence.length > 0)
-        .slice(0, 50);
-
-      providerStats.hackerNews.returnedCount = items.filter((item) => item.source === 'Hacker News').length;
-      providerStats.appStore.returnedCount = items.filter((item) => item.source === 'Apple App Store').length;
-      providerStats.github.returnedCount = items.filter((item) => item.source === 'GitHub').length;
-      providerStats.productHunt.returnedCount = items.filter((item) => item.source === 'Product Hunt').length;
-      providerStats.gdelt.returnedCount = items.filter((item) => item.source === 'GDELT').length;
-
-      const allProvidersFailed = !providerStats.hackerNews.ok && !providerStats.appStore.ok && !providerStats.github.ok && !providerStats.productHunt.ok && !providerStats.gdelt.ok;
+      const realResult = await buildRealOpportunitiesWithProviders(realOpportunityProviders());
+      const { items, providerStats, poolStats, allProvidersFailed } = realResult;
 
       if (allProvidersFailed || items.length < 10) {
         res.status(502).json({
@@ -317,6 +482,7 @@ app.get('/api/opportunities', async (req, res) => {
           error: 'provider_error',
           message: allProvidersFailed ? 'All real providers failed' : `Real opportunities insufficient: ${items.length}`,
           providerStats,
+          poolStats,
         });
         return;
       }
@@ -326,6 +492,7 @@ app.get('/api/opportunities', async (req, res) => {
         generatedAt: new Date().toISOString(),
         count: items.length,
         providerStats,
+        poolStats,
         items,
       };
     } else {
@@ -368,14 +535,7 @@ app.get('/api/opportunities', async (req, res) => {
 });
 
 function loadAnalyzeItems(source) {
-  const providers = [
-    { key: 'hackerNews', source: 'Hacker News', load: getHackerNewsOpportunities },
-    { key: 'appStore', source: 'Apple App Store', load: getAppStoreOpportunities },
-    { key: 'github', source: 'GitHub', load: getGitHubOpportunities },
-    { key: 'productHunt', source: 'Product Hunt', load: getProductHuntOpportunities },
-    { key: 'gdelt', source: 'GDELT', load: getGdeltOpportunities },
-  ];
-  return loadAnalyzeItemsWithProviders(source, providers);
+  return loadAnalyzeItemsWithProviders(source, realOpportunityProviders());
 }
 
 function createAnalyzeProviderStats(providers) {
@@ -1974,7 +2134,9 @@ export {
   attachJudgmentSchema,
   buildJudgmentAssumptions,
   buildJudgmentVerdict,
+  buildRealOpportunitiesWithProviders,
   buildRuleAnalyzeResponse,
+  classifyProviderError,
   loadAnalyzeItemsWithProviders,
   parseQueryIntent,
   resolveAnalysisMode,

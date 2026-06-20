@@ -81,9 +81,25 @@ export interface HotItem {
 
 export interface ProviderStatItem {
   ok: boolean;
+  configured?: boolean;
   count?: number;
   fetchedCount?: number;
   returnedCount?: number;
+  requestedCount?: number;
+  rawCount?: number;
+  mappedCount?: number;
+  validCount?: number;
+  selectedCount?: number;
+  finalCount?: number;
+  droppedCount?: number;
+  dropReasons?: Record<string, number>;
+  latencyMs?: number;
+  httpStatus?: number;
+  errorClass?: string;
+  rateLimited?: boolean;
+  cacheHit?: boolean;
+  lastSuccessAt?: string;
+  message?: string;
   error?: string;
   skippedReason?: string;
 }

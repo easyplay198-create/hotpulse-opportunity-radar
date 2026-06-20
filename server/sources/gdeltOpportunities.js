@@ -1,4 +1,20 @@
 const GDELT_DOC_ENDPOINT = 'https://api.gdeltproject.org/api/v2/doc/doc';
+const GDELT_QUERIES = [
+  {
+    query: '("AI app" OR "AI tool" OR "AI agent" OR "generative AI") (global OR market OR users OR app)',
+    name: 'AI',
+  },
+  {
+    query: '("mobile game" OR "short drama" OR "streaming app" OR "social app") (Asia OR LATAM OR Middle East OR global)',
+    name: 'Content',
+  },
+  {
+    query: '("local payment" OR subscription OR localization OR "app store") (emerging market OR Asia OR LATAM OR Middle East)',
+    name: 'Commerce',
+  },
+];
+const GDELT_QUERY_LIMIT = 10;
+const GDELT_PROVIDER_LIMIT = 10;
 
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
@@ -125,7 +141,7 @@ async function fetchQuery(query, queryName) {
   const url = new URL(GDELT_DOC_ENDPOINT);
   url.searchParams.set('mode', 'artlist');
   url.searchParams.set('format', 'json');
-  url.searchParams.set('maxrecords', '10');
+  url.searchParams.set('maxrecords', String(GDELT_QUERY_LIMIT));
   url.searchParams.set('timespan', '7d');
   url.searchParams.set('sort', 'datedesc');
   url.searchParams.set('query', query);
@@ -135,10 +151,19 @@ async function fetchQuery(query, queryName) {
 
   try {
     const resp = await fetch(url.toString(), { signal: controller.signal });
-    if (!resp.ok) throw new Error(`GDELT request failed: ${resp.status}`);
+    if (!resp.ok) {
+      return {
+        ok: false,
+        httpStatus: resp.status,
+        errorClass: resp.status === 429 ? 'rate_limited' : 'http_error',
+        rateLimited: resp.status === 429,
+        articles: [],
+        usableArticles: [],
+      };
+    }
     const data = await resp.json();
     const articles = Array.isArray(data?.articles) ? data.articles : [];
-    return articles
+    const usableArticles = articles
       .map((article) => ({
         title: safeText(article.title),
         url: safeText(article.url),
@@ -149,34 +174,52 @@ async function fetchQuery(query, queryName) {
         queryName,
       }))
       .filter((article) => article.title && article.url);
+    return {
+      ok: true,
+      httpStatus: resp.status,
+      articles,
+      usableArticles,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      errorClass: error?.name === 'AbortError' ? 'timeout' : 'network_error',
+      articles: [],
+      usableArticles: [],
+    };
   } finally {
     clearTimeout(timeout);
   }
 }
 
 export async function getGdeltOpportunities() {
-  const queries = [
-    {
-      query: '("AI app" OR "AI tool" OR "AI agent" OR "generative AI") (global OR market OR users OR app)',
-      name: 'AI',
-    },
-    {
-      query: '("mobile game" OR "short drama" OR "streaming app" OR "social app") (Asia OR LATAM OR Middle East OR global)',
-      name: 'Content',
-    },
-    {
-      query: '("local payment" OR subscription OR localization OR "app store") (emerging market OR Asia OR LATAM OR Middle East)',
-      name: 'Commerce',
-    },
-  ];
-
-  const groups = await Promise.allSettled(queries.map(({ query, name }) => fetchQuery(query, name)));
+  const groups = await Promise.all(GDELT_QUERIES.map(({ query, name }) => fetchQuery(query, name)));
   const articles = [];
+  const dropReasons = {};
+  let httpStatus;
+  let errorClass;
+  let rateLimited = false;
+  let rawCount = 0;
+  let usableCount = 0;
 
   groups.forEach((result, idx) => {
-    if (result.status !== 'fulfilled') return;
-    const queryName = queries[idx].name;
-    for (const article of result.value) {
+    const queryName = GDELT_QUERIES[idx].name;
+    if (!result.ok) {
+      const reason = result.errorClass || 'unknown';
+      if (!errorClass) errorClass = reason;
+      if (result.httpStatus && !httpStatus) httpStatus = result.httpStatus;
+      if (result.rateLimited) rateLimited = true;
+      return;
+    }
+    rawCount += result.articles.length;
+    usableCount += result.usableArticles.length;
+    if (result.articles.length === 0) {
+      dropReasons.no_results = (dropReasons.no_results || 0) + 1;
+    }
+    if (result.articles.length > result.usableArticles.length) {
+      dropReasons.no_usable_items = (dropReasons.no_usable_items || 0) + (result.articles.length - result.usableArticles.length);
+    }
+    for (const article of result.usableArticles) {
       articles.push({ ...article, queryName });
     }
   });
@@ -188,14 +231,51 @@ export async function getGdeltOpportunities() {
     dedup.set(key, article);
   }
 
-  const items = [...dedup.values()]
-    .slice(0, 10)
+  const mappableArticles = [...dedup.values()];
+  const mappedItems = mappableArticles
     .map((article, idx) => toOpportunity(article, idx, article.queryName))
     .filter((item) => Array.isArray(item.evidence) && item.evidence.length > 0);
+  const items = mappedItems.slice(0, GDELT_PROVIDER_LIMIT);
+
+  const duplicateCount = Math.max(0, usableCount - dedup.size);
+  if (duplicateCount > 0) dropReasons.duplicate = (dropReasons.duplicate || 0) + duplicateCount;
+  if (mappableArticles.length > mappedItems.length) dropReasons.mapping_failed = (dropReasons.mapping_failed || 0) + (mappableArticles.length - mappedItems.length);
+  if (mappedItems.length > GDELT_PROVIDER_LIMIT) dropReasons.provider_quota = (dropReasons.provider_quota || 0) + (mappedItems.length - GDELT_PROVIDER_LIMIT);
+
+  const providerMeta = {
+    configured: true,
+    requestedCount: GDELT_QUERIES.length * GDELT_QUERY_LIMIT,
+    rawCount,
+    deduplicatedCount: dedup.size,
+    mappedCount: mappableArticles.length,
+    validCount: mappedItems.length,
+    selectedCount: items.length,
+    droppedCount: Object.values(dropReasons).reduce((sum, count) => sum + count, 0),
+    dropReasons,
+    httpStatus,
+    errorClass,
+    rateLimited,
+  };
 
   if (items.length === 0) {
-    return { ok: false, skippedReason: 'GDELT returned no usable articles', items: [] };
+    const finalErrorClass = errorClass || (rawCount === 0 ? 'no_results' : 'no_usable_items');
+    return {
+      ok: false,
+      skippedReason: finalErrorClass === 'rate_limited'
+        ? 'GDELT rate limited'
+        : rawCount === 0
+          ? 'GDELT returned no articles'
+          : 'GDELT returned no usable articles',
+      errorClass: finalErrorClass,
+      httpStatus,
+      rateLimited,
+      providerMeta: {
+        ...providerMeta,
+        errorClass: finalErrorClass,
+      },
+      items: [],
+    };
   }
 
-  return { ok: true, items };
+  return { ok: true, providerMeta, items };
 }

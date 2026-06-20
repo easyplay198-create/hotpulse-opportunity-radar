@@ -1,4 +1,7 @@
 const HN_BASE = 'https://hn.algolia.com/api/v1/search_by_date';
+const HN_QUERIES = ['AI tool', 'developer tool', 'SaaS startup'];
+const HN_HITS_PER_PAGE = 20;
+const HN_PROVIDER_LIMIT = 20;
 
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
@@ -101,7 +104,7 @@ function toItem(hit, idx) {
 }
 
 async function fetchQuery(query) {
-  const url = `${HN_BASE}?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=20`;
+  const url = `${HN_BASE}?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=${HN_HITS_PER_PAGE}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`HN request failed: ${resp.status}`);
   const data = await resp.json();
@@ -109,8 +112,7 @@ async function fetchQuery(query) {
 }
 
 export async function getHackerNewsOpportunities() {
-  const queries = ['AI tool', 'developer tool', 'SaaS startup'];
-  const hitsGroups = await Promise.all(queries.map((q) => fetchQuery(q)));
+  const hitsGroups = await Promise.all(HN_QUERIES.map((q) => fetchQuery(q)));
   const merged = hitsGroups.flat();
 
   const dedup = new Map();
@@ -120,11 +122,33 @@ export async function getHackerNewsOpportunities() {
     dedup.set(key, hit);
   }
 
-  const items = [...dedup.values()]
-    .filter((h) => (h.title || h.story_title) && (h.url || h.story_url || h.objectID))
-    .slice(0, 20)
+  const mappableRecords = [...dedup.values()]
+    .filter((h) => (h.title || h.story_title) && (h.url || h.story_url || h.objectID));
+  const mappedItems = mappableRecords
     .map((hit, idx) => toItem(hit, idx))
     .filter((item) => Array.isArray(item.evidence) && item.evidence.every((ev) => typeof ev.url === 'string' && /^https?:\/\//i.test(ev.url)));
+  const items = mappedItems.slice(0, HN_PROVIDER_LIMIT);
+
+  const dropReasons = {
+    ...(merged.length - dedup.size > 0 ? { duplicate: merged.length - dedup.size } : {}),
+    ...(dedup.size - mappableRecords.length > 0 ? { invalid_shape: dedup.size - mappableRecords.length } : {}),
+    ...(mappableRecords.length - mappedItems.length > 0 ? { invalid_url: mappableRecords.length - mappedItems.length } : {}),
+    ...(mappedItems.length > HN_PROVIDER_LIMIT ? { provider_quota: mappedItems.length - HN_PROVIDER_LIMIT } : {}),
+  };
+
+  Object.defineProperty(items, 'providerMeta', {
+    enumerable: false,
+    value: {
+      requestedCount: HN_QUERIES.length * HN_HITS_PER_PAGE,
+      rawCount: merged.length,
+      deduplicatedCount: dedup.size,
+      mappedCount: mappableRecords.length,
+      validCount: mappedItems.length,
+      selectedCount: items.length,
+      droppedCount: Object.values(dropReasons).reduce((sum, count) => sum + count, 0),
+      dropReasons,
+    },
+  });
 
   if (items.length < 10) {
     throw new Error(`HN opportunities insufficient: ${items.length}`);

@@ -1,4 +1,7 @@
 const ITUNES_SEARCH = 'https://itunes.apple.com/search';
+const APP_STORE_TERMS = ['ai assistant', 'productivity app', 'developer tool'];
+const APP_STORE_QUERY_LIMIT = 25;
+const APP_STORE_PROVIDER_LIMIT = 20;
 
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
@@ -105,7 +108,7 @@ function toItem(result, idx) {
 }
 
 async function fetchQuery(term) {
-  const url = `${ITUNES_SEARCH}?term=${encodeURIComponent(term)}&entity=software&limit=25`;
+  const url = `${ITUNES_SEARCH}?term=${encodeURIComponent(term)}&entity=software&limit=${APP_STORE_QUERY_LIMIT}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`App Store request failed: ${resp.status}`);
   const data = await resp.json();
@@ -113,8 +116,7 @@ async function fetchQuery(term) {
 }
 
 export async function getAppStoreOpportunities() {
-  const terms = ['ai assistant', 'productivity app', 'developer tool'];
-  const groups = await Promise.all(terms.map((term) => fetchQuery(term)));
+  const groups = await Promise.all(APP_STORE_TERMS.map((term) => fetchQuery(term)));
   const merged = groups.flat();
 
   const dedup = new Map();
@@ -124,10 +126,30 @@ export async function getAppStoreOpportunities() {
     dedup.set(key, item);
   }
 
-  const items = [...dedup.values()]
-    .filter((r) => typeof r.trackViewUrl === 'string' && /^https?:\/\//i.test(r.trackViewUrl))
-    .slice(0, 20)
-    .map((r, idx) => toItem(r, idx));
+  const mappableRecords = [...dedup.values()]
+    .filter((r) => typeof r.trackViewUrl === 'string' && /^https?:\/\//i.test(r.trackViewUrl));
+  const mappedItems = mappableRecords.map((r, idx) => toItem(r, idx));
+  const items = mappedItems.slice(0, APP_STORE_PROVIDER_LIMIT);
+
+  const dropReasons = {
+    ...(merged.length - dedup.size > 0 ? { duplicate: merged.length - dedup.size } : {}),
+    ...(dedup.size - mappableRecords.length > 0 ? { invalid_url: dedup.size - mappableRecords.length } : {}),
+    ...(mappedItems.length > APP_STORE_PROVIDER_LIMIT ? { provider_quota: mappedItems.length - APP_STORE_PROVIDER_LIMIT } : {}),
+  };
+
+  Object.defineProperty(items, 'providerMeta', {
+    enumerable: false,
+    value: {
+      requestedCount: APP_STORE_TERMS.length * APP_STORE_QUERY_LIMIT,
+      rawCount: merged.length,
+      deduplicatedCount: dedup.size,
+      mappedCount: mappedItems.length,
+      validCount: mappedItems.length,
+      selectedCount: items.length,
+      droppedCount: Object.values(dropReasons).reduce((sum, count) => sum + count, 0),
+      dropReasons,
+    },
+  });
 
   if (items.length < 10) {
     throw new Error(`App Store opportunities insufficient: ${items.length}`);
