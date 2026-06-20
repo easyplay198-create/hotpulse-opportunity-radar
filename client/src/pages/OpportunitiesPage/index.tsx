@@ -11,14 +11,29 @@ import {
 import { AppShell } from '../../components/layout/AppShell';
 import { TopNav } from '../../components/layout/TopNav';
 import type { EvidenceItem, EvidenceStrength, HotItem, ProviderStats } from '../../types/hot';
+import {
+  buildAnalyzeHrefFromOpportunity,
+  getCardObservations,
+  getDrawerObservedRows,
+  getKnowledgeBaseEntries,
+  mapDataTierLabel,
+  pickCardPrimarySource,
+  PUBLIC_SIGNAL_PRESETS,
+  PUBLIC_SORT_OPTIONS,
+  RISK_PROVENANCE_LABEL,
+  RISK_RULE_DISCLAIMER,
+  shouldShowMarket,
+  sortByInternalScore,
+  type PublicSignalPreset,
+  type PublicSortKey,
+} from './presentation';
 import styles from './OpportunitiesPage.module.css';
 
 type DataSource = OpportunitiesDataSource;
 type RadarTab = 'opportunities' | 'signals';
-type StatusFilter = 'all' | 'do_now' | 'watch' | 'skip';
 type StrengthFilter = 'all' | EvidenceStrength;
-type SortKey = 'score' | 'latest' | 'evidence' | 'heat';
-type SignalPreset = 'composite' | 'highScore' | 'strongEvidence' | 'latest' | 'heat';
+type SortKey = PublicSortKey;
+type SignalPreset = PublicSignalPreset;
 
 interface RadarOpportunity {
   item: HotItem;
@@ -26,7 +41,7 @@ interface RadarOpportunity {
   title: string;
   sourceLabel: string;
   sourceNames: string[];
-  score: number;
+  dataTier: DataSource;
   heat: number;
   evidenceStrength: EvidenceStrength | 'unknown';
   evidenceRank: number;
@@ -37,7 +52,6 @@ interface RadarOpportunity {
   riskReason: string;
   retrievedAt?: string;
   retrievedAtTime: number;
-  status: StatusFilter;
   evidence: EvidenceItem[];
 }
 
@@ -45,7 +59,6 @@ interface FilterState {
   keyword: string;
   source: string;
   strength: StrengthFilter;
-  status: StatusFilter;
   market: string;
   sort: SortKey;
 }
@@ -93,16 +106,7 @@ function writeOpportunitiesCache(entry: OpportunitiesCacheEntry) {
 }
 
 function dataSourceLabel(source: DataSource) {
-  if (source === 'real') return '真实信号';
-  return '预验证样本';
-}
-
-function strengthLabel(strength: StrengthFilter | 'unknown') {
-  if (strength === 'high') return '强证据';
-  if (strength === 'medium') return '中等证据';
-  if (strength === 'low') return '弱证据';
-  if (strength === 'unknown') return '证据待确认';
-  return '全部证据';
+  return mapDataTierLabel(source);
 }
 
 function strengthRank(strength?: EvidenceStrength) {
@@ -160,11 +164,6 @@ function compactText(value: string | undefined, fallback: string, limit = 58) {
   return text.length > limit ? `${text.slice(0, limit)}...` : text;
 }
 
-function isInternalKnowledgeEvidence(evidence: EvidenceItem) {
-  return evidence.source === 'HotPulse Market Knowledge'
-    || evidence.metadata?.knowledgeType === 'static_market_entry';
-}
-
 function safeExternalUrl(value?: string | null) {
   const raw = value?.trim();
   if (!raw) return null;
@@ -182,9 +181,6 @@ function safeExternalUrl(value?: string | null) {
 function riskReason(item: HotItem) {
   const explicitRisk = item.riskFlags?.find((risk) => risk.trim());
   if (explicitRisk) return explicitRisk;
-
-  const negativeReason = item.reasonNegative?.find((reason) => reason.trim());
-  if (negativeReason) return negativeReason;
 
   const risks = [
     { label: '支付路径待验证', value: item.paymentRisk ?? 0 },
@@ -220,20 +216,19 @@ function buildRadarOpportunity(item: HotItem): RadarOpportunity {
     item,
     id: item.id,
     title: item.title,
-    sourceLabel: sources.slice(0, 2).join(' / ') || '来源待确认',
+    sourceLabel: pickCardPrimarySource(evidence, item.platformId) || '来源待确认',
     sourceNames: sources,
-    score: item.valueScore,
+    dataTier: item.dataTier,
     heat: item.heat,
     evidenceStrength: best,
     evidenceRank: bestRank,
     targetMarket: market ?? UNKNOWN_MARKET,
     hasKnownMarket: Boolean(market),
     productType: item.productType?.trim() || item.category || '产品类型待确认',
-    positiveReason: compactText(item.reasonPositive?.[0] || item.summary, '已有市场信号，适合进入小样本验证。'),
+    positiveReason: compactText(item.summary || item.reasonPositive?.[0], '已有市场信号，适合进入小样本验证。'),
     riskReason: compactText(riskReason(item), '进入前仍需验证风险。'),
     retrievedAt,
     retrievedAtTime,
-    status: item.verdict,
     evidence,
   };
 }
@@ -243,11 +238,13 @@ function uniqueSorted(values: string[]) {
 }
 
 function sortRadarItems(items: RadarOpportunity[], sort: SortKey) {
+  const ranked = sortByInternalScore(items.map((item) => item.item));
+  const rankIndex = new Map(ranked.map((item, index) => [item.id, index]));
   return [...items].sort((a, b) => {
-    if (sort === 'latest') return b.retrievedAtTime - a.retrievedAtTime || b.score - a.score;
-    if (sort === 'evidence') return b.evidenceRank - a.evidenceRank || b.score - a.score;
-    if (sort === 'heat') return b.heat - a.heat || b.score - a.score;
-    return b.score - a.score || b.evidenceRank - a.evidenceRank;
+    if (sort === 'latest') return b.retrievedAtTime - a.retrievedAtTime || (rankIndex.get(a.id) ?? 0) - (rankIndex.get(b.id) ?? 0);
+    if (sort === 'evidence') return b.evidenceRank - a.evidenceRank || (rankIndex.get(a.id) ?? 0) - (rankIndex.get(b.id) ?? 0);
+    if (sort === 'heat') return b.heat - a.heat || (rankIndex.get(a.id) ?? 0) - (rankIndex.get(b.id) ?? 0);
+    return (rankIndex.get(a.id) ?? 0) - (rankIndex.get(b.id) ?? 0);
   });
 }
 
@@ -267,14 +264,12 @@ function filterRadarItems(items: RadarOpportunity[], filter: FilterState) {
     if (keyword && !haystack.includes(keyword)) return false;
     if (filter.source !== ALL && !opportunity.sourceNames.includes(filter.source)) return false;
     if (filter.strength !== ALL && opportunity.evidenceStrength !== filter.strength) return false;
-    if (filter.status !== ALL && opportunity.status !== filter.status) return false;
     if (filter.market !== ALL && opportunity.targetMarket !== filter.market) return false;
     return true;
   });
 }
 
 function signalPresetItems(items: RadarOpportunity[], preset: SignalPreset) {
-  if (preset === 'highScore') return sortRadarItems(items.filter((item) => item.score >= 75), 'score');
   if (preset === 'strongEvidence') return sortRadarItems(items.filter((item) => item.evidenceRank >= 2), 'evidence');
   if (preset === 'latest') return sortRadarItems(items.filter((item) => item.retrievedAtTime > 0), 'latest');
   if (preset === 'heat') return sortRadarItems(items, 'heat');
@@ -306,29 +301,17 @@ function providerStatusCopy(key: string, stat: NonNullable<ProviderStats[keyof P
   return `${name}：本次无有效结果`;
 }
 
-function sourceQuery(source: DataSource) {
-  return `source=${encodeURIComponent(source)}`;
-}
-
 function buildAnalyzeHref(opportunity?: RadarOpportunity, source: DataSource = 'mock') {
-  if (!opportunity) return `/analyze?${sourceQuery(source)}`;
-  const market = opportunity.hasKnownMarket ? opportunity.targetMarket : '';
-  const query = [
-    opportunity.title,
-    opportunity.productType,
-    market ? `目标市场：${market}` : '',
-    opportunity.item.summary,
-    `验证重点：${opportunity.positiveReason}`,
-    `主要风险：${opportunity.riskReason}`,
-  ].filter(Boolean).join('，').slice(0, 600);
-  const params = new URLSearchParams();
-  params.set('source', 'real');
-  params.set('auto', '1');
-  params.set('opportunityId', opportunity.id);
-  params.set('q', query);
-  if (market) params.set('targetMarket', market);
-  if (opportunity.productType) params.set('productType', opportunity.productType);
-  return `/analyze?${params.toString()}`;
+  return buildAnalyzeHrefFromOpportunity(opportunity ? {
+    id: opportunity.id,
+    title: opportunity.title,
+    productType: opportunity.productType,
+    hasKnownMarket: opportunity.hasKnownMarket,
+    targetMarket: opportunity.targetMarket,
+    summary: opportunity.item.summary,
+    evidenceStrength: opportunity.evidenceStrength,
+    riskHint: opportunity.riskReason,
+  } : undefined, source);
 }
 
 export function OpportunitiesPage() {
@@ -348,7 +331,6 @@ export function OpportunitiesPage() {
     keyword: '',
     source: ALL,
     strength: ALL,
-    status: ALL,
     market: ALL,
     sort: 'score',
   });
@@ -459,7 +441,7 @@ export function OpportunitiesPage() {
   };
 
   const clearFilters = () => {
-    setFilter({ keyword: '', source: ALL, strength: ALL, status: ALL, market: ALL, sort: 'score' });
+    setFilter({ keyword: '', source: ALL, strength: ALL, market: ALL, sort: 'score' });
   };
 
   return (
@@ -543,15 +525,6 @@ export function OpportunitiesPage() {
                 </select>
               </label>
               <label>
-                <span>机会状态</span>
-                <select value={filter.status} onChange={(event) => updateFilter('status', event.target.value as StatusFilter)}>
-                  <option value={ALL}>全部状态</option>
-                  <option value="do_now">优先验证</option>
-                  <option value="watch">持续观察</option>
-                  <option value="skip">暂缓进入</option>
-                </select>
-              </label>
-              <label>
                 <span>目标市场</span>
                 <select value={filter.market} onChange={(event) => updateFilter('market', event.target.value)}>
                   <option value={ALL}>全部已知市场</option>
@@ -561,10 +534,9 @@ export function OpportunitiesPage() {
               <label>
                 <span>排序方式</span>
                 <select value={filter.sort} onChange={(event) => updateFilter('sort', event.target.value as SortKey)}>
-                  <option value="score">综合分排序</option>
-                  <option value="latest">最新采集时间</option>
-                  <option value="evidence">证据强度排序</option>
-                  <option value="heat">热度排序</option>
+                  {PUBLIC_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </label>
               <button className={styles.clearButton} type="button" onClick={clearFilters}>清除筛选</button>
@@ -589,18 +561,12 @@ export function OpportunitiesPage() {
                 <p>同一批机会数据的不同排序视角，不显示无依据的增长率或下载收入变化。</p>
               </div>
               <div className={styles.presetBar}>
-                {[
-                  ['composite', '综合机会榜'],
-                  ['highScore', '高分机会榜'],
-                  ['strongEvidence', '证据较强榜'],
-                  ['latest', '最新发现榜'],
-                  ['heat', '热度榜'],
-                ].map(([key, label]) => (
+                {PUBLIC_SIGNAL_PRESETS.map(({ value, label }) => (
                   <button
-                    key={key}
+                    key={value}
                     type="button"
-                    className={signalPreset === key ? styles.presetActive : styles.presetButton}
-                    onClick={() => setSignalPreset(key as SignalPreset)}
+                    className={signalPreset === value ? styles.presetActive : styles.presetButton}
+                    onClick={() => setSignalPreset(value)}
                   >
                     {label}
                   </button>
@@ -618,7 +584,7 @@ export function OpportunitiesPage() {
           </section>
         )}
 
-        {selected ? <OpportunityDrawer opportunity={selected} dataSource={dataSource} onClose={() => setSelectedId(null)} /> : null}
+        {selected ? <OpportunityDrawer key={selected.id} opportunity={selected} dataSource={dataSource} onClose={() => setSelectedId(null)} /> : null}
       </div>
     </AppShell>
   );
@@ -660,34 +626,61 @@ function OpportunityGrid({
 
   return (
     <div className={styles.cardGrid}>
-      {items.map((opportunity) => (
-        <article key={opportunity.id} className={styles.opportunityCard}>
-          <div className={styles.cardTopline}>
-            <span>{opportunity.sourceLabel}</span>
-            <strong>{opportunity.score}</strong>
-          </div>
-          <h2>{opportunity.title}</h2>
-          <div className={styles.badgeRow}>
-            <span>{strengthLabel(opportunity.evidenceStrength)}</span>
-            <span>{opportunity.targetMarket}</span>
-            <span>{opportunity.productType}</span>
-          </div>
-          <div className={styles.scoreBar} aria-label={`综合分 ${opportunity.score}`}>
-            <i style={{ width: `${Math.max(4, Math.min(100, opportunity.score))}%` }} />
-          </div>
-          <div className={styles.reasonGrid}>
-            <p><strong>理由</strong>{opportunity.positiveReason}</p>
-            <p><strong>风险</strong>{opportunity.riskReason}</p>
-          </div>
-          <div className={styles.cardFooter}>
-            <span>{formatTime(opportunity.retrievedAt)}</span>
-            <div>
-              <button type="button" onClick={() => onSelect(opportunity.id)}>查看详情</button>
-              <a href={buildAnalyzeHref(opportunity, dataSource)}>评估是否适合我</a>
+      {items.map((opportunity) => {
+        const observations = getCardObservations(opportunity.evidence);
+        const showProductType = opportunity.productType !== '产品类型待确认';
+        const showMarket = shouldShowMarket(opportunity.targetMarket);
+        return (
+          <article key={opportunity.id} className={styles.opportunityCard}>
+            {/* Layer 1: external source + data identity */}
+            <div className={styles.cardSource}>
+              <span className={styles.cardSourceName}>{opportunity.sourceLabel}</span>
+              <span className={styles.cardTierDot} data-tier={opportunity.dataTier}>
+                ● {mapDataTierLabel(opportunity.dataTier)}
+              </span>
             </div>
-          </div>
-        </article>
-      ))}
+
+            {/* Layer 2: title */}
+            <h2>{opportunity.title}</h2>
+
+            {/* Layer 3: context tags — max 2, hide Global/待确认 */}
+            {(showProductType || showMarket) && (
+              <div className={styles.badgeRow}>
+                {showProductType && <span>{opportunity.productType}</span>}
+                {showMarket && <span>{opportunity.targetMarket}</span>}
+              </div>
+            )}
+
+            {/* Layer 4: external observations */}
+            <div className={styles.cardObservations}>
+              <span className={styles.cardObsLabel}>外部观测</span>
+              {observations.length > 0
+                ? observations.map((obs, i) =>
+                    obs.metricsLine ? (
+                      <span key={i} className={styles.cardObsMetrics}>{obs.metricsLine}</span>
+                    ) : obs.fallbackTitle ? (
+                      <span key={i} className={styles.cardObsFallback}>{obs.fallbackTitle}</span>
+                    ) : null,
+                  )
+                : <span className={styles.cardObsFallback}>{opportunity.positiveReason}</span>}
+            </div>
+
+            {/* Layer 5: unverified limitations + CTA */}
+            <div className={styles.cardRisk}>
+              <span className={styles.cardRiskHeader}>⚠ 待验证限制</span>
+              <p className={styles.cardRiskText}>
+                {opportunity.riskReason}
+                <span className={styles.ruleTag}> · {RISK_PROVENANCE_LABEL}</span>
+              </p>
+            </div>
+
+            <div className={styles.cardFooter}>
+              <button type="button" onClick={() => onSelect(opportunity.id)}>查看详情</button>
+              <a href={buildAnalyzeHref(opportunity, dataSource)}>评估是否适合我 →</a>
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -701,60 +694,143 @@ function OpportunityDrawer({
   dataSource: DataSource;
   onClose: () => void;
 }) {
+  const [isKnowledgeExpanded, setIsKnowledgeExpanded] = useState(false);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  const detailDataTier = mapDataTierLabel(opportunity.dataTier);
+  const observedRows = getDrawerObservedRows(opportunity.evidence);
+  const kbEntries = getKnowledgeBaseEntries(opportunity.evidence);
+  const productType = opportunity.item.productType?.trim() || opportunity.item.category || '';
+  const showProductType = productType && productType !== '产品类型待确认';
+  const kbContentId = `knowledge-content-${opportunity.id}`;
+
   return (
     <div className={styles.drawerBackdrop} role="presentation">
       <aside className={styles.drawer} aria-label="机会详情">
-        <div className={styles.drawerHeader}>
+
+        {/* Header — flex: 0 0 auto, never scrolls */}
+        <header className={styles.drawerHeader}>
           <div>
-            <span className={styles.eyebrow}>Opportunity Detail</span>
+            <span className={styles.eyebrow}>OPPORTUNITY DETAIL</span>
             <h2>{opportunity.title}</h2>
+            {showProductType && (
+              <span className={styles.productTypeTag}>{productType}</span>
+            )}
+            <div className={styles.drawerHeaderMeta}>
+              <span>{opportunity.sourceLabel}</span>
+              <span className={styles.metaSep}>·</span>
+              <span className={styles.drawerTierLabel} data-tier={opportunity.dataTier}>
+                ● {detailDataTier}
+              </span>
+              <span className={styles.metaSep}>·</span>
+              <span>{formatTime(opportunity.retrievedAt)}</span>
+            </div>
           </div>
           <button type="button" onClick={onClose} aria-label="关闭详情">×</button>
-        </div>
+        </header>
 
-        <section className={styles.drawerScoreGrid}>
-          <span><strong>{opportunity.score}</strong><small>综合分</small></span>
-          <span><strong>{strengthLabel(opportunity.evidenceStrength)}</strong><small>证据强度</small></span>
-          <span><strong>{opportunity.targetMarket}</strong><small>目标市场</small></span>
-          <span><strong>{opportunity.productType}</strong><small>产品类型</small></span>
-        </section>
+        {/* Scrollable content area — flex: 1 1 auto */}
+        <div className={styles.drawerContent}>
 
-        <section className={styles.drawerSection}>
-          <h3>核心判断</h3>
-          <p>{opportunity.positiveReason}</p>
-          <p className={styles.riskCopy}>{opportunity.riskReason}</p>
-        </section>
-
-        <section className={styles.drawerSection}>
-          <h3>证据列表</h3>
-          {opportunity.evidence.length > 0 ? (
-            <div className={styles.evidenceList}>
-              {opportunity.evidence.map((evidence) => {
-                const safeUrl = safeExternalUrl(evidence.url);
-                const isInternalKnowledge = isInternalKnowledgeEvidence(evidence);
-                return (
-                  <article key={`${opportunity.id}-${evidence.source}-${evidence.url || evidence.title}`}>
-                    <span>{evidence.source} · {strengthLabel(evidence.evidenceStrength)}</span>
-                    <strong>{evidence.title}</strong>
-                    <small>{formatTime(evidence.retrievedAt)}</small>
-                    {safeUrl ? <a href={safeUrl} target="_blank" rel="noreferrer">打开原始来源</a> : null}
-                    {isInternalKnowledge ? (
-                      <small>HotPulse 内部知识库 · 用于辅助市场进入判断 · 无外部原始链接</small>
-                    ) : null}
-                    {!safeUrl && !isInternalKnowledge ? <small>该条证据暂无可打开的原始来源</small> : null}
-                  </article>
-                );
-              })}
+          {/* Observed external data zone — white */}
+          <div className={styles.drawerObsZone}>
+            <div className={styles.drawerObsHeader}>
+              <span>外部观测</span>
+              <span className={styles.provenanceTag}>
+                外部可验证<span className={styles.provenanceSub}> · observed</span>
+              </span>
             </div>
-          ) : (
-            <p>当前机会没有返回可打开的证据链接。</p>
-          )}
-        </section>
+            {observedRows.length > 0
+              ? observedRows.map((row, i) => {
+                  const safeUrl = safeExternalUrl(row.rawUrl);
+                  return (
+                    <div key={i} className={styles.drawerObsRow}>
+                      <span className={styles.drawerObsSource}>{row.sourceName}</span>
+                      <span className={`${styles.drawerObsValue}${row.isWeakSignal ? ` ${styles.drawerObsWeak}` : ''}`}>
+                        {row.primaryValue}
+                      </span>
+                      {row.secondaryValue && (
+                        <span className={styles.drawerObsSub}>{row.secondaryValue}</span>
+                      )}
+                      {safeUrl && (
+                        <a href={safeUrl} target="_blank" rel="noreferrer" className={styles.drawerObsLink}>
+                          打开原始来源 ↗
+                        </a>
+                      )}
+                    </div>
+                  );
+                })
+              : <p className={styles.drawerObsFallback}>{opportunity.positiveReason}</p>}
+          </div>
 
-        <div className={styles.drawerActions}>
-          <a className={styles.primaryButton} href={buildAnalyzeHref(opportunity, dataSource)}>评估是否适合我</a>
-          <button className={styles.secondaryButton} type="button" onClick={onClose}>返回机会列表</button>
+          {/* Unverified limitations zone — light amber */}
+          <div className={styles.drawerRiskZone}>
+            <div className={styles.drawerRiskHeader}>
+              <span>待验证限制</span>
+              <span className={styles.provenanceTagWarn}>{RISK_PROVENANCE_LABEL}</span>
+            </div>
+            <div className={styles.drawerRiskItem}>
+              <span className={styles.drawerRiskIcon}>⚠</span>
+              <div>
+                <p className={styles.drawerRiskText}>{opportunity.riskReason}</p>
+                <p className={styles.drawerRiskDisclaimer}>{RISK_RULE_DISCLAIMER}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Knowledge base zone — header always visible, content collapsed on mobile */}
+          {kbEntries.length > 0 && (
+            <section className={styles.knowledgeSection}>
+              <div className={styles.knowledgeHeader}>
+                <span className={styles.provenanceTagGray}>
+                  内部知识库<span className={styles.provenanceSub}> · knowledge_base</span>
+                </span>
+                <span>系统内部补充</span>
+                <button
+                  type="button"
+                  className={styles.knowledgeToggle}
+                  aria-expanded={isKnowledgeExpanded}
+                  aria-controls={kbContentId}
+                  onClick={() => setIsKnowledgeExpanded((v) => !v)}
+                >
+                  {isKnowledgeExpanded ? '收起内部补充' : '展开内部补充'}
+                </button>
+              </div>
+              <div
+                id={kbContentId}
+                className={styles.knowledgeContent}
+                data-expanded={isKnowledgeExpanded ? 'true' : 'false'}
+              >
+                {kbEntries.map((entry, i) => (
+                  <div key={i} className={styles.kbRow}>
+                    <span className={styles.kbRowTitle}>{entry.title}</span>
+                    <span className={styles.kbRowMeta}>用于辅助市场进入判断</span>
+                    <span className={styles.kbRowMeta}>无外部链接</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
         </div>
+
+        {/* Footer — flex: 0 0 auto, always at viewport bottom */}
+        <footer className={styles.drawerFooter}>
+          <a className={styles.primaryButton} href={buildAnalyzeHref(opportunity, dataSource)}>
+            评估是否适合我 →
+          </a>
+          <button className={styles.secondaryButton} type="button" onClick={onClose}>
+            返回机会列表
+          </button>
+        </footer>
+
       </aside>
     </div>
   );
