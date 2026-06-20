@@ -91,6 +91,8 @@ export interface ProviderStatItem {
   validCount?: number;
   selectedCount?: number;
   finalCount?: number;
+  candidatePoolCount?: number;
+  pageCount?: number;
   droppedCount?: number;
   dropReasons?: Record<string, number>;
   latencyMs?: number;

@@ -118,7 +118,8 @@ function toOpportunity(node, idx) {
   };
 }
 
-async function fetchProductHuntPosts() {
+async function fetchProductHuntPosts(options = {}) {
+  const requestLimit = options.requestLimit ?? PRODUCT_HUNT_PROVIDER_LIMIT;
   const token = getToken();
   if (!token) {
     return {
@@ -139,7 +140,7 @@ async function fetchProductHuntPosts() {
     };
   }
 
-  const query = `query { posts(first: ${PRODUCT_HUNT_PROVIDER_LIMIT}) { edges { node { id name tagline description url website votesCount commentsCount createdAt topics { edges { node { name } } } } } } }`;
+  const query = `query { posts(first: ${requestLimit}) { edges { node { id name tagline description url website votesCount commentsCount createdAt topics { edges { node { name } } } } } } }`;
   const resp = await fetch(PRODUCT_HUNT_GRAPHQL, {
     method: 'POST',
     headers: {
@@ -157,8 +158,10 @@ async function fetchProductHuntPosts() {
   return { ok: true, items: nodes };
 }
 
-export async function getProductHuntOpportunities() {
-  const result = await fetchProductHuntPosts();
+export async function getProductHuntOpportunities(options = {}) {
+  const requestLimit = options.requestLimit ?? PRODUCT_HUNT_PROVIDER_LIMIT;
+  const providerLimit = options.providerLimit ?? requestLimit;
+  const result = await fetchProductHuntPosts({ requestLimit });
   if (!result.ok) {
     return {
       ok: false,
@@ -173,17 +176,17 @@ export async function getProductHuntOpportunities() {
   const mappableNodes = result.items
     .filter((node) => typeof node?.url === 'string' || typeof node?.website === 'string');
   const mappedItems = mappableNodes.map((node, idx) => toOpportunity(node, idx));
-  const items = mappedItems.slice(0, PRODUCT_HUNT_PROVIDER_LIMIT);
+  const items = mappedItems.slice(0, providerLimit);
   const dropReasons = {
     ...(result.items.length - mappableNodes.length > 0 ? { missing_url: result.items.length - mappableNodes.length } : {}),
-    ...(mappedItems.length > PRODUCT_HUNT_PROVIDER_LIMIT ? { provider_quota: mappedItems.length - PRODUCT_HUNT_PROVIDER_LIMIT } : {}),
+    ...(mappedItems.length > providerLimit ? { provider_quota: mappedItems.length - providerLimit } : {}),
   };
 
   return {
     ok: true,
     providerMeta: {
       configured: true,
-      requestedCount: PRODUCT_HUNT_PROVIDER_LIMIT,
+      requestedCount: requestLimit,
       rawCount: result.items.length,
       deduplicatedCount: result.items.length,
       mappedCount: mappedItems.length,

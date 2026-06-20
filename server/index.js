@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import cors from 'cors';
+import crypto from 'node:crypto';
 import express from 'express';
 import { pathToFileURL } from 'node:url';
 import { getMockOpportunities } from './sources/mockOpportunities.js';
@@ -19,7 +20,23 @@ const PORT = process.env.PORT || 3001;
 const CACHE_TTL_MS = 60 * 1000;
 const REAL_OPPORTUNITIES_HARD_LIMIT = 50;
 const REAL_PROVIDER_PRIMARY_LIMIT = 10;
+const LEGACY_HARD_LIMIT = 50;
+const CANDIDATE_POOL_HARD_LIMIT = 120;
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 30;
+const SNAPSHOT_TTL_MS = 10 * 60 * 1000;
+const MAX_SNAPSHOTS = 20;
+const LOW_SIGNAL_HN_POOL_CAP = 10;
+const CURSOR_VERSION = 1;
+const CURSOR_PROVIDER_QUOTAS = {
+  hackerNews: 40,
+  appStore: 40,
+  github: 40,
+  productHunt: 20,
+  gdelt: 10,
+};
 const opportunitiesCache = new Map();
+const opportunityPoolSnapshots = new Map();
 
 const allowedOrigins = (process.env.CLIENT_ORIGIN || '')
   .split(',')
@@ -132,13 +149,14 @@ function enhanceWithMarketKnowledge(item) {
   };
 }
 
-function realOpportunityProviders() {
+function realOpportunityProviders(options = {}) {
+  const quotas = options.providerQuotas || {};
   return [
-    { key: 'hackerNews', source: 'Hacker News', load: getHackerNewsOpportunities },
-    { key: 'appStore', source: 'Apple App Store', load: getAppStoreOpportunities },
-    { key: 'github', source: 'GitHub', load: getGitHubOpportunities },
-    { key: 'productHunt', source: 'Product Hunt', load: getProductHuntOpportunities },
-    { key: 'gdelt', source: 'GDELT', load: getGdeltOpportunities },
+    { key: 'hackerNews', source: 'Hacker News', load: () => getHackerNewsOpportunities({ providerLimit: quotas.hackerNews }) },
+    { key: 'appStore', source: 'Apple App Store', load: () => getAppStoreOpportunities({ providerLimit: quotas.appStore }) },
+    { key: 'github', source: 'GitHub', load: () => getGitHubOpportunities({ providerLimit: quotas.github }) },
+    { key: 'productHunt', source: 'Product Hunt', load: () => getProductHuntOpportunities({ providerLimit: quotas.productHunt, requestLimit: quotas.productHunt }) },
+    { key: 'gdelt', source: 'GDELT', load: () => getGdeltOpportunities({ providerLimit: quotas.gdelt }) },
   ];
 }
 
@@ -227,6 +245,59 @@ function dedupeCandidateEntries(entries) {
   return { kept, dropped };
 }
 
+function roundRobinProviderEntries(providers, itemsByProvider, priorityKeys = []) {
+  const byKey = new Map(providers.map((provider) => [provider.key, provider]));
+  const orderedProviders = [
+    ...priorityKeys.map((key) => byKey.get(key)).filter(Boolean),
+    ...providers.filter((provider) => !priorityKeys.includes(provider.key)),
+  ];
+  const maxLength = orderedProviders.reduce((max, provider) => Math.max(max, (itemsByProvider.get(provider.key) || []).length), 0);
+  const entries = [];
+
+  for (let index = 0; index < maxLength; index += 1) {
+    for (const provider of orderedProviders) {
+      const item = (itemsByProvider.get(provider.key) || [])[index];
+      if (item) entries.push({ provider, item });
+    }
+  }
+
+  return entries;
+}
+
+function isLowSignalHackerNewsItem(item) {
+  if (item?.source !== 'Hacker News') return false;
+  const hnEvidence = Array.isArray(item.evidence)
+    ? item.evidence.find((ev) => ev.source === 'Hacker News')
+    : null;
+  if (!hnEvidence) return false;
+  const points = Number(hnEvidence.metadata?.points ?? 0);
+  const comments = Number(hnEvidence.metadata?.comments ?? 0);
+  return hnEvidence.evidenceStrength === 'low' || (points < 50 && comments < 20);
+}
+
+function applyLowSignalHackerNewsCap(entries, cap) {
+  if (!Number.isInteger(cap) || cap < 0) return { kept: entries, dropped: [] };
+  let lowSignalCount = 0;
+  const kept = [];
+  const dropped = [];
+
+  for (const entry of entries) {
+    if (!isLowSignalHackerNewsItem(entry.item)) {
+      kept.push(entry);
+      continue;
+    }
+
+    lowSignalCount += 1;
+    if (lowSignalCount <= cap) {
+      kept.push(entry);
+    } else {
+      dropped.push(entry);
+    }
+  }
+
+  return { kept, dropped };
+}
+
 function buildProviderStat({
   provider,
   ok,
@@ -278,6 +349,10 @@ function buildProviderStat({
 async function buildRealOpportunitiesWithProviders(providers, options = {}) {
   const hardLimit = options.hardLimit ?? REAL_OPPORTUNITIES_HARD_LIMIT;
   const primaryLimit = options.primaryLimit ?? REAL_PROVIDER_PRIMARY_LIMIT;
+  const limitDropReason = options.limitDropReason || 'global_limit';
+  const lowSignalHnPoolCap = options.lowSignalHnPoolCap;
+  const mergeStrategy = options.mergeStrategy || 'legacy_primary_then_remaining';
+  const providerPriority = options.providerPriority || [];
   const providerStats = {};
   const itemsByProvider = new Map();
 
@@ -348,9 +423,20 @@ async function buildRealOpportunitiesWithProviders(providers, options = {}) {
   const remainingEntries = providers.flatMap((provider) => (itemsByProvider.get(provider.key) || [])
     .slice(primaryLimit)
     .map((item) => ({ provider, item })));
-  const candidateEntries = [...primaryEntries, ...remainingEntries]
+  const mergedEntries = mergeStrategy === 'round_robin'
+    ? roundRobinProviderEntries(providers, itemsByProvider, providerPriority)
+    : [...primaryEntries, ...remainingEntries];
+  const candidateEntries = mergedEntries
     .filter((entry) => Array.isArray(entry.item.evidence) && entry.item.evidence.length > 0);
-  const { kept: deduplicatedEntries, dropped: duplicateEntries } = dedupeCandidateEntries(candidateEntries);
+  const { kept: signalCappedEntries, dropped: lowSignalDroppedEntries } = applyLowSignalHackerNewsCap(candidateEntries, lowSignalHnPoolCap);
+  for (const entry of lowSignalDroppedEntries) {
+    const stat = providerStats[entry.provider.key];
+    if (!stat) continue;
+    addDropReason(stat.dropReasons, 'low_signal_cap');
+    stat.droppedCount = dropReasonTotal(stat.dropReasons);
+  }
+
+  const { kept: deduplicatedEntries, dropped: duplicateEntries } = dedupeCandidateEntries(signalCappedEntries);
   for (const entry of duplicateEntries) {
     const stat = providerStats[entry.provider.key];
     if (!stat) continue;
@@ -363,15 +449,15 @@ async function buildRealOpportunitiesWithProviders(providers, options = {}) {
   for (const provider of providers) {
     const stat = providerStats[provider.key];
     if (!stat) continue;
-    stat.selectedCount = countItemsByProvider(candidateEntries, provider);
+    stat.selectedCount = countItemsByProvider(signalCappedEntries, provider);
     stat.finalCount = countItemsByProvider(finalEntries, provider);
     stat.returnedCount = stat.finalCount;
     const deduplicatedCount = countItemsByProvider(deduplicatedEntries, provider);
     if (deduplicatedCount > stat.finalCount) {
       const globalLimitDropped = deduplicatedCount - stat.finalCount;
-      addDropReason(stat.dropReasons, 'global_limit', globalLimitDropped);
+      addDropReason(stat.dropReasons, limitDropReason, globalLimitDropped);
       stat.droppedCount = dropReasonTotal(stat.dropReasons);
-      stat.errorClass = stat.errorClass || 'global_limit_truncated';
+      stat.errorClass = stat.errorClass || (limitDropReason === 'global_limit' ? 'global_limit_truncated' : 'quota_truncated');
     }
   }
 
@@ -395,6 +481,226 @@ async function buildRealOpportunitiesWithProviders(providers, options = {}) {
     poolStats,
     allProvidersFailed: results.every((result) => !result.ok),
   };
+}
+
+function parsePositiveIntegerParam(value) {
+  if (Array.isArray(value)) return null;
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) return null;
+  return parsed;
+}
+
+function parsePageSizeParam(value) {
+  const parsed = parsePositiveIntegerParam(value);
+  if (!parsed || parsed > MAX_PAGE_SIZE) return null;
+  return parsed;
+}
+
+function encodeCursor(payload) {
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
+function decodeCursor(value) {
+  if (Array.isArray(value) || typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    if (parsed?.v !== CURSOR_VERSION) return null;
+    if (typeof parsed.snapshotId !== 'string' || !parsed.snapshotId) return null;
+    if (!Number.isSafeInteger(parsed.offset) || parsed.offset < 0) return null;
+    if (!Number.isSafeInteger(parsed.pageSize) || parsed.pageSize < 1 || parsed.pageSize > MAX_PAGE_SIZE) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function cleanupOpportunityPoolSnapshots(now = Date.now()) {
+  for (const [id, snapshot] of opportunityPoolSnapshots.entries()) {
+    if (new Date(snapshot.expiresAt).getTime() <= now) {
+      opportunityPoolSnapshots.delete(id);
+    }
+  }
+
+  while (opportunityPoolSnapshots.size > MAX_SNAPSHOTS) {
+    const oldest = [...opportunityPoolSnapshots.entries()]
+      .sort((a, b) => new Date(a[1].createdAt).getTime() - new Date(b[1].createdAt).getTime())[0];
+    if (!oldest) break;
+    opportunityPoolSnapshots.delete(oldest[0]);
+  }
+}
+
+function createOpportunityPoolSnapshot({ items, providerStats, poolStats }, now = Date.now()) {
+  cleanupOpportunityPoolSnapshots(now);
+  const createdAt = new Date(now).toISOString();
+  const expiresAt = new Date(now + SNAPSHOT_TTL_MS).toISOString();
+  const snapshot = {
+    id: crypto.randomUUID(),
+    createdAt,
+    expiresAt,
+    items,
+    providerStats,
+    poolStats,
+  };
+  opportunityPoolSnapshots.set(snapshot.id, snapshot);
+  cleanupOpportunityPoolSnapshots(now);
+  return snapshot;
+}
+
+function getOpportunityPoolSnapshot(snapshotId, now = Date.now()) {
+  cleanupOpportunityPoolSnapshots(now);
+  const snapshot = opportunityPoolSnapshots.get(snapshotId);
+  if (!snapshot) return null;
+  if (new Date(snapshot.expiresAt).getTime() <= now) {
+    opportunityPoolSnapshots.delete(snapshotId);
+    return null;
+  }
+  return snapshot;
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function providerPageCount(items, providerStat) {
+  const sourceName = providerStat?.provider;
+  return items.filter((item) => item.source === sourceName).length;
+}
+
+function buildPagedProviderStats(snapshot, pageItems) {
+  const stats = cloneJson(snapshot.providerStats || {});
+  for (const stat of Object.values(stats)) {
+    const candidatePoolCount = snapshot.items.filter((item) => item.source === stat.provider).length;
+    const pageCount = providerPageCount(pageItems, stat);
+    stat.candidatePoolCount = candidatePoolCount;
+    stat.finalCount = pageCount;
+    stat.pageCount = pageCount;
+    stat.returnedCount = pageCount;
+  }
+  return stats;
+}
+
+function buildPagedPoolStats(snapshot, pageItems, offset) {
+  return {
+    ...cloneJson(snapshot.poolStats || {}),
+    mode: 'cursor_v1',
+    hardLimit: CANDIDATE_POOL_HARD_LIMIT,
+    candidatePoolCount: snapshot.items.length,
+    pageCount: pageItems.length,
+    pageOffset: offset,
+    finalCount: pageItems.length,
+  };
+}
+
+function buildCursorPage(snapshot, offset, pageSize) {
+  const pageItems = snapshot.items.slice(offset, offset + pageSize);
+  const nextOffset = offset + pageItems.length;
+  const hasMore = nextOffset < snapshot.items.length;
+  const nextCursor = hasMore
+    ? encodeCursor({ v: CURSOR_VERSION, snapshotId: snapshot.id, offset: nextOffset, pageSize })
+    : null;
+
+  return {
+    source: 'real',
+    generatedAt: snapshot.createdAt,
+    count: pageItems.length,
+    providerStats: buildPagedProviderStats(snapshot, pageItems),
+    poolStats: buildPagedPoolStats(snapshot, pageItems, offset),
+    pageInfo: {
+      mode: 'cursor_v1',
+      pageSize,
+      returnedCount: pageItems.length,
+      totalCount: snapshot.items.length,
+      offset,
+      hasMore,
+      nextCursor,
+      snapshotId: snapshot.id,
+      generatedAt: snapshot.createdAt,
+      expiresAt: snapshot.expiresAt,
+    },
+    items: pageItems,
+  };
+}
+
+function cursorError(res, status, error, message) {
+  res.status(status).json({ error, message });
+}
+
+async function buildCursorFirstPageResponse(providers, pageSize, now = Date.now()) {
+  const realResult = await buildRealOpportunitiesWithProviders(providers, {
+    hardLimit: CANDIDATE_POOL_HARD_LIMIT,
+    primaryLimit: REAL_PROVIDER_PRIMARY_LIMIT,
+    lowSignalHnPoolCap: LOW_SIGNAL_HN_POOL_CAP,
+    limitDropReason: 'candidate_pool_limit',
+    mergeStrategy: 'round_robin',
+    providerPriority: ['appStore', 'github', 'productHunt', 'hackerNews', 'gdelt'],
+  });
+
+  if (realResult.allProvidersFailed || realResult.items.length === 0) {
+    return {
+      error: {
+        status: 502,
+        body: {
+          source: 'real',
+          error: 'provider_error',
+          message: realResult.allProvidersFailed ? 'All real providers failed' : 'Real opportunities insufficient: 0',
+          providerStats: realResult.providerStats,
+          poolStats: realResult.poolStats,
+        },
+      },
+    };
+  }
+
+  const snapshot = createOpportunityPoolSnapshot(realResult, now);
+  return { body: buildCursorPage(snapshot, 0, pageSize) };
+}
+
+async function handleCursorOpportunitiesRequest(req, res) {
+  const hasCursor = Object.prototype.hasOwnProperty.call(req.query, 'cursor');
+  const hasLimit = Object.prototype.hasOwnProperty.call(req.query, 'limit');
+
+  if (hasCursor) {
+    if (hasLimit) {
+      cursorError(res, 400, 'invalid_cursor', 'The pagination cursor is invalid.');
+      return;
+    }
+
+    const cursor = decodeCursor(req.query.cursor);
+    if (!cursor) {
+      cursorError(res, 400, 'invalid_cursor', 'The pagination cursor is invalid.');
+      return;
+    }
+
+    const snapshot = getOpportunityPoolSnapshot(cursor.snapshotId);
+    if (!snapshot) {
+      cursorError(res, 410, 'cursor_expired', 'The opportunity snapshot has expired. Start a new request.');
+      return;
+    }
+
+    if (cursor.offset > snapshot.items.length) {
+      cursorError(res, 400, 'invalid_cursor', 'The pagination cursor is invalid.');
+      return;
+    }
+
+    res.json(buildCursorPage(snapshot, cursor.offset, cursor.pageSize));
+    return;
+  }
+
+  const pageSize = parsePageSizeParam(req.query.limit);
+  if (!pageSize) {
+    res.status(400).json({ error: 'invalid_limit', message: `limit must be an integer between 1 and ${MAX_PAGE_SIZE}.` });
+    return;
+  }
+
+  const result = await buildCursorFirstPageResponse(
+    realOpportunityProviders({ providerQuotas: CURSOR_PROVIDER_QUOTAS }),
+    pageSize,
+  );
+  if (result.error) {
+    res.status(result.error.status).json(result.error.body);
+    return;
+  }
+  res.json(result.body);
 }
 
 app.get('/api/opportunities', async (req, res) => {
@@ -430,6 +736,14 @@ app.get('/api/opportunities', async (req, res) => {
   }
 
   const source = req.query.source === 'real' ? 'real' : (req.query.source === 'hn' ? 'hn' : 'mock');
+  const isCursorMode = source === 'real'
+    && (Object.prototype.hasOwnProperty.call(req.query, 'limit')
+      || Object.prototype.hasOwnProperty.call(req.query, 'cursor'));
+  if (isCursorMode) {
+    await handleCursorOpportunitiesRequest(req, res);
+    return;
+  }
+
   const cacheKey = source === 'real'
     ? '/api/opportunities?source=real'
     : source === 'hn'
@@ -2134,10 +2448,18 @@ export {
   attachJudgmentSchema,
   buildJudgmentAssumptions,
   buildJudgmentVerdict,
+  buildCursorFirstPageResponse,
+  buildCursorPage,
   buildRealOpportunitiesWithProviders,
   buildRuleAnalyzeResponse,
   classifyProviderError,
+  cleanupOpportunityPoolSnapshots,
+  createOpportunityPoolSnapshot,
+  decodeCursor,
+  encodeCursor,
+  getOpportunityPoolSnapshot,
   loadAnalyzeItemsWithProviders,
+  opportunityPoolSnapshots,
   parseQueryIntent,
   resolveAnalysisMode,
   runAnalyzeWorkflow,

@@ -115,7 +115,8 @@ async function fetchQuery(term) {
   return Array.isArray(data.results) ? data.results : [];
 }
 
-export async function getAppStoreOpportunities() {
+export async function getAppStoreOpportunities(options = {}) {
+  const providerLimit = options.providerLimit ?? APP_STORE_PROVIDER_LIMIT;
   const groups = await Promise.all(APP_STORE_TERMS.map((term) => fetchQuery(term)));
   const merged = groups.flat();
 
@@ -129,12 +130,12 @@ export async function getAppStoreOpportunities() {
   const mappableRecords = [...dedup.values()]
     .filter((r) => typeof r.trackViewUrl === 'string' && /^https?:\/\//i.test(r.trackViewUrl));
   const mappedItems = mappableRecords.map((r, idx) => toItem(r, idx));
-  const items = mappedItems.slice(0, APP_STORE_PROVIDER_LIMIT);
+  const items = mappedItems.slice(0, providerLimit);
 
   const dropReasons = {
     ...(merged.length - dedup.size > 0 ? { duplicate: merged.length - dedup.size } : {}),
     ...(dedup.size - mappableRecords.length > 0 ? { invalid_url: dedup.size - mappableRecords.length } : {}),
-    ...(mappedItems.length > APP_STORE_PROVIDER_LIMIT ? { provider_quota: mappedItems.length - APP_STORE_PROVIDER_LIMIT } : {}),
+    ...(mappedItems.length > providerLimit ? { provider_quota: mappedItems.length - providerLimit } : {}),
   };
 
   Object.defineProperty(items, 'providerMeta', {

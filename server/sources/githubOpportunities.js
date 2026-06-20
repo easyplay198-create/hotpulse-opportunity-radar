@@ -115,7 +115,8 @@ async function fetchQuery(query) {
   return Array.isArray(data.items) ? data.items : [];
 }
 
-export async function getGitHubOpportunities() {
+export async function getGitHubOpportunities(options = {}) {
+  const providerLimit = options.providerLimit ?? GITHUB_PROVIDER_LIMIT;
   const groups = await Promise.all(GITHUB_QUERIES.map((query) => fetchQuery(query)));
   const merged = groups.flat();
 
@@ -129,12 +130,12 @@ export async function getGitHubOpportunities() {
   const mappableRecords = [...dedup.values()]
     .filter((repo) => typeof repo.html_url === 'string' && /^https?:\/\//i.test(repo.html_url));
   const mappedItems = mappableRecords.map((repo, idx) => toItem(repo, idx));
-  const items = mappedItems.slice(0, GITHUB_PROVIDER_LIMIT);
+  const items = mappedItems.slice(0, providerLimit);
 
   const dropReasons = {
     ...(merged.length - dedup.size > 0 ? { duplicate: merged.length - dedup.size } : {}),
     ...(dedup.size - mappableRecords.length > 0 ? { invalid_url: dedup.size - mappableRecords.length } : {}),
-    ...(mappedItems.length > GITHUB_PROVIDER_LIMIT ? { provider_quota: mappedItems.length - GITHUB_PROVIDER_LIMIT } : {}),
+    ...(mappedItems.length > providerLimit ? { provider_quota: mappedItems.length - providerLimit } : {}),
   };
 
   Object.defineProperty(items, 'providerMeta', {

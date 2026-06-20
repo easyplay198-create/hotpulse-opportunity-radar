@@ -111,7 +111,8 @@ async function fetchQuery(query) {
   return Array.isArray(data.hits) ? data.hits : [];
 }
 
-export async function getHackerNewsOpportunities() {
+export async function getHackerNewsOpportunities(options = {}) {
+  const providerLimit = options.providerLimit ?? HN_PROVIDER_LIMIT;
   const hitsGroups = await Promise.all(HN_QUERIES.map((q) => fetchQuery(q)));
   const merged = hitsGroups.flat();
 
@@ -127,13 +128,13 @@ export async function getHackerNewsOpportunities() {
   const mappedItems = mappableRecords
     .map((hit, idx) => toItem(hit, idx))
     .filter((item) => Array.isArray(item.evidence) && item.evidence.every((ev) => typeof ev.url === 'string' && /^https?:\/\//i.test(ev.url)));
-  const items = mappedItems.slice(0, HN_PROVIDER_LIMIT);
+  const items = mappedItems.slice(0, providerLimit);
 
   const dropReasons = {
     ...(merged.length - dedup.size > 0 ? { duplicate: merged.length - dedup.size } : {}),
     ...(dedup.size - mappableRecords.length > 0 ? { invalid_shape: dedup.size - mappableRecords.length } : {}),
     ...(mappableRecords.length - mappedItems.length > 0 ? { invalid_url: mappableRecords.length - mappedItems.length } : {}),
-    ...(mappedItems.length > HN_PROVIDER_LIMIT ? { provider_quota: mappedItems.length - HN_PROVIDER_LIMIT } : {}),
+    ...(mappedItems.length > providerLimit ? { provider_quota: mappedItems.length - providerLimit } : {}),
   };
 
   Object.defineProperty(items, 'providerMeta', {

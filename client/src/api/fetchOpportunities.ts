@@ -12,6 +12,8 @@ export interface ProviderStatItem {
   validCount?: number;
   selectedCount?: number;
   finalCount?: number;
+  candidatePoolCount?: number;
+  pageCount?: number;
   droppedCount?: number;
   dropReasons?: Record<string, number>;
   latencyMs?: number;
@@ -33,6 +35,23 @@ export interface PoolStats {
   deduplicatedCount: number;
   primarySelectedCount: number;
   finalCount: number;
+  mode?: 'legacy' | 'cursor_v1';
+  candidatePoolCount?: number;
+  pageCount?: number;
+  pageOffset?: number;
+}
+
+export interface PageInfo {
+  mode: 'cursor_v1';
+  pageSize: number;
+  returnedCount: number;
+  totalCount: number;
+  offset: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+  snapshotId: string;
+  generatedAt: string;
+  expiresAt: string;
 }
 
 export interface OpportunitiesResponse {
@@ -46,6 +65,7 @@ export interface OpportunitiesResponse {
   count: number;
   items: HotspotItem[];
   poolStats?: PoolStats;
+  pageInfo?: PageInfo;
   providerStats?: {
     hackerNews?: ProviderStatItem;
     appStore?: ProviderStatItem;
@@ -53,6 +73,12 @@ export interface OpportunitiesResponse {
     productHunt?: ProviderStatItem;
     gdelt?: ProviderStatItem;
   };
+}
+
+export interface FetchOpportunitiesOptions {
+  source?: 'hn' | 'real';
+  limit?: number;
+  cursor?: string;
 }
 
 const REAL_SOURCE_TIMEOUT_MS = 70_000;
@@ -75,8 +101,23 @@ async function fetchWithTimeout(url: string, timeoutMs: number) {
   }
 }
 
-export async function fetchOpportunities(source?: 'hn' | 'real'): Promise<OpportunitiesResponse> {
-  const query = source === 'hn' ? '?source=hn' : source === 'real' ? '?source=real' : '';
+function buildOpportunitiesQuery(input?: 'hn' | 'real' | FetchOpportunitiesOptions) {
+  const options = typeof input === 'string' ? { source: input } : input || {};
+  const params = new URLSearchParams();
+  if (options.source) params.set('source', options.source);
+  if (typeof options.limit === 'number') params.set('limit', String(options.limit));
+  if (options.cursor) params.set('cursor', options.cursor);
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+function resolveSource(input?: 'hn' | 'real' | FetchOpportunitiesOptions) {
+  return typeof input === 'string' ? input : input?.source;
+}
+
+export async function fetchOpportunities(input?: 'hn' | 'real' | FetchOpportunitiesOptions): Promise<OpportunitiesResponse> {
+  const query = buildOpportunitiesQuery(input);
+  const source = resolveSource(input);
   const base = getApiBase();
   const timeoutMs = source === 'real' ? REAL_SOURCE_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
   const response = await fetchWithTimeout(`${base}/api/opportunities${query}`, timeoutMs);

@@ -192,7 +192,8 @@ async function fetchQuery(query, queryName) {
   }
 }
 
-export async function getGdeltOpportunities() {
+export async function getGdeltOpportunities(options = {}) {
+  const providerLimit = options.providerLimit ?? GDELT_PROVIDER_LIMIT;
   const groups = await Promise.all(GDELT_QUERIES.map(({ query, name }) => fetchQuery(query, name)));
   const articles = [];
   const dropReasons = {};
@@ -235,12 +236,12 @@ export async function getGdeltOpportunities() {
   const mappedItems = mappableArticles
     .map((article, idx) => toOpportunity(article, idx, article.queryName))
     .filter((item) => Array.isArray(item.evidence) && item.evidence.length > 0);
-  const items = mappedItems.slice(0, GDELT_PROVIDER_LIMIT);
+  const items = mappedItems.slice(0, providerLimit);
 
   const duplicateCount = Math.max(0, usableCount - dedup.size);
   if (duplicateCount > 0) dropReasons.duplicate = (dropReasons.duplicate || 0) + duplicateCount;
   if (mappableArticles.length > mappedItems.length) dropReasons.mapping_failed = (dropReasons.mapping_failed || 0) + (mappableArticles.length - mappedItems.length);
-  if (mappedItems.length > GDELT_PROVIDER_LIMIT) dropReasons.provider_quota = (dropReasons.provider_quota || 0) + (mappedItems.length - GDELT_PROVIDER_LIMIT);
+  if (mappedItems.length > providerLimit) dropReasons.provider_quota = (dropReasons.provider_quota || 0) + (mappedItems.length - providerLimit);
 
   const providerMeta = {
     configured: true,
