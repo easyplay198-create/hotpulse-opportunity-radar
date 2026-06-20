@@ -1,5 +1,10 @@
 import type { EvidenceItem, EvidenceStrength, HotItem } from '../../types/hot';
 import type { OpportunityDataTier } from '../../types/opportunityDetail';
+export {
+  buildAnalyzeHrefFromOpportunity,
+  buildPublicAnalyzeQuery,
+  type OpportunityAnalyzeHrefInput as PublicAnalyzeOpportunityInput,
+} from '../../lib/opportunityAnalyzeHref';
 
 export type PublicSortKey = 'score' | 'latest' | 'evidence' | 'heat';
 export type PublicSignalPreset = 'composite' | 'strongEvidence' | 'latest' | 'heat';
@@ -36,72 +41,6 @@ export function mapDataTierLabel(dataTier: OpportunityDataTier): string {
 
 export function sortByInternalScore<T extends Pick<HotItem, 'valueScore'>>(items: T[]): T[] {
   return [...items].sort((a, b) => b.valueScore - a.valueScore);
-}
-
-function sanitizeScoreDerivedTerms(text: string): string {
-  return text
-    .replace(/综合评分\s*\d+/gi, '')
-    .replace(/综合分\s*\d+/gi, '')
-    .replace(/机会分\s*\d+/gi, '')
-    .replace(/\b(do_now|watch|skip)\b/gi, '')
-    .replace(/[，,]\s*[，,]/g, '，')
-    .replace(/^[，,\s]+|[，,\s]+$/g, '')
-    .trim();
-}
-
-export function buildPublicAnalyzeQuery(options: {
-  title: string;
-  productType: string;
-  targetMarket?: string;
-  summary?: string;
-  evidenceStrength: EvidenceStrength | 'unknown' | 'insufficient';
-  riskHint: string;
-}): string {
-  const raw = [
-    options.title,
-    options.productType,
-    options.targetMarket ? `目标市场：${options.targetMarket}` : '',
-    options.summary ?? '',
-    `证据强度：${mapEvidenceStrengthLabel(options.evidenceStrength)}`,
-    `风险提示：${options.riskHint}`,
-  ].filter(Boolean).join('，').slice(0, 600);
-  return sanitizeScoreDerivedTerms(raw);
-}
-
-export interface PublicAnalyzeOpportunityInput {
-  id: string;
-  title: string;
-  productType: string;
-  hasKnownMarket: boolean;
-  targetMarket: string;
-  summary?: string;
-  evidenceStrength: EvidenceStrength | 'unknown' | 'insufficient';
-  riskHint: string;
-}
-
-export function buildAnalyzeHrefFromOpportunity(
-  opportunity: PublicAnalyzeOpportunityInput | undefined,
-  source: OpportunityDataTier = 'mock',
-): string {
-  const sourceQuery = `source=${encodeURIComponent(source)}`;
-  if (!opportunity) return `/analyze?${sourceQuery}`;
-  const market = opportunity.hasKnownMarket ? opportunity.targetMarket : '';
-  const query = buildPublicAnalyzeQuery({
-    title: opportunity.title,
-    productType: opportunity.productType,
-    targetMarket: market || undefined,
-    summary: opportunity.summary,
-    evidenceStrength: opportunity.evidenceStrength,
-    riskHint: opportunity.riskHint,
-  });
-  const params = new URLSearchParams();
-  params.set('source', 'real');
-  params.set('auto', '1');
-  params.set('opportunityId', opportunity.id);
-  params.set('q', query);
-  if (market) params.set('targetMarket', market);
-  if (opportunity.productType) params.set('productType', opportunity.productType);
-  return `/analyze?${params.toString()}`;
 }
 
 // ── Provenance-first display helpers ─────────────────────────────────────

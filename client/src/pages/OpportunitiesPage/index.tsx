@@ -12,7 +12,6 @@ import { AppShell } from '../../components/layout/AppShell';
 import { TopNav } from '../../components/layout/TopNav';
 import type { EvidenceItem, EvidenceStrength, HotItem, ProviderStats } from '../../types/hot';
 import {
-  buildAnalyzeHrefFromOpportunity,
   getCardObservations,
   getDrawerObservedRows,
   getKnowledgeBaseEntries,
@@ -27,6 +26,7 @@ import {
   type PublicSignalPreset,
   type PublicSortKey,
 } from './presentation';
+import { buildAnalyzeHrefBySource, buildAnalyzeHrefFromOpportunity } from '../../lib/opportunityAnalyzeHref';
 import styles from './OpportunitiesPage.module.css';
 
 type DataSource = OpportunitiesDataSource;
@@ -302,16 +302,18 @@ function providerStatusCopy(key: string, stat: NonNullable<ProviderStats[keyof P
 }
 
 function buildAnalyzeHref(opportunity?: RadarOpportunity, source: DataSource = 'mock') {
-  return buildAnalyzeHrefFromOpportunity(opportunity ? {
+  if (!opportunity) return buildAnalyzeHrefBySource(source);
+  return buildAnalyzeHrefFromOpportunity({
     id: opportunity.id,
     title: opportunity.title,
     productType: opportunity.productType,
-    hasKnownMarket: opportunity.hasKnownMarket,
-    targetMarket: opportunity.targetMarket,
+    targetMarket: opportunity.hasKnownMarket ? opportunity.targetMarket : undefined,
+    primarySource: opportunity.sourceLabel,
+    evidence: opportunity.evidence,
     summary: opportunity.item.summary,
     evidenceStrength: opportunity.evidenceStrength,
     riskHint: opportunity.riskReason,
-  } : undefined, source);
+  });
 }
 
 export function OpportunitiesPage() {

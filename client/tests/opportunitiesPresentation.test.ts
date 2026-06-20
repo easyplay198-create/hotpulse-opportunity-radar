@@ -78,13 +78,12 @@ describe('Opportunities presentation semantics', () => {
       id: 'opp-1',
       title: '日本 AI 机会',
       productType: 'AI 工具',
-      hasKnownMarket: true,
       targetMarket: '日本',
       summary: '综合评分 67，建议 do_now',
       evidenceStrength: 'high',
       riskHint: '支付路径待验证',
     };
-    const href = buildAnalyzeHrefFromOpportunity(opportunity, 'real');
+    const href = buildAnalyzeHrefFromOpportunity(opportunity);
 
     const url = new URL(`https://example.com${href}`);
     assert.equal(url.pathname, '/analyze');
@@ -293,11 +292,10 @@ describe('Provenance-first: CTA query hygiene', () => {
       id: 'x',
       title: 'Test',
       productType: 'SaaS',
-      hasKnownMarket: true,
       targetMarket: '日本',
       evidenceStrength: 'high',
       riskHint: '支付风险',
-    }, 'real');
+    });
     assert.equal(href.includes('score'), false);
     assert.equal(href.includes('verdict'), false);
     assert.equal(href.includes('do_now'), false);
