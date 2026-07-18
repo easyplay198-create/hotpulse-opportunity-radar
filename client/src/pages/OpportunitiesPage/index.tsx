@@ -582,8 +582,8 @@ export function OpportunitiesPage() {
 
         <section className={styles.hero}>
           <div>
-            <span className={styles.eyebrow}>Opportunity Radar</span>
-            <h1>机会雷达</h1>
+            <span className={styles.eyebrow}>Market Opportunity Radar</span>
+            <h1>商机雷达</h1>
             <p>从真实市场信号中发现值得进一步验证的出海方向</p>
             <div className={styles.heroActions}>
               <a className={styles.primaryButton} href={buildAnalyzeHref(undefined, dataSource)}>开始验证自己的项目</a>
@@ -633,7 +633,7 @@ export function OpportunitiesPage() {
           </section>
         ) : null}
 
-        <section className={styles.tabs} aria-label="机会雷达视图">
+        <section className={styles.tabs} aria-label="商机雷达视图">
           <button type="button" className={tab === 'opportunities' ? styles.tabActive : styles.tabButton} onClick={() => setTab('opportunities')}>
             机会库
           </button>

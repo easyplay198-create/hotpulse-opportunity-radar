@@ -437,14 +437,14 @@ export function HomePage() {
             </div>
           </div>
           <div className={styles.productPath}>
-            <p className={styles.pathIntro}>机会雷达发现方向，验证工具判断方向，报告页沉淀结论，并在需要时连接顾问和执行支持。</p>
+            <p className={styles.pathIntro}>商机雷达发现方向，验证工具判断方向，报告页沉淀结论，并在需要时连接顾问和执行支持。</p>
             <div className={styles.pathStack}>
               <article className={styles.pathRow}>
                 <div className={styles.pathMain}>
                   <div className={styles.pathStep}>Step 01</div>
-                  <h3 className={styles.pathTitle}>机会雷达 / 市场信号榜</h3>
+                  <h3 className={styles.pathTitle}>商机雷达 / 市场信号榜</h3>
                   <p className={styles.pathDesc}>每天沉淀市场信号和可验证方向，帮你发现值得进一步判断的机会。</p>
-                  <a className={styles.pathAction} href={withSource('/opportunities')}>查看机会雷达</a>
+                  <a className={styles.pathAction} href={withSource('/opportunities')}>查看商机雷达</a>
                 </div>
                 <div className={styles.pathSupport}>
                   <div className={styles.supportHeader}>
@@ -563,7 +563,7 @@ export function HomePage() {
           <nav className={styles.footerNav} aria-label="页脚导航">
             <a href={withSource('/')}>首页</a>
             <a href={withSource('/analyze')}>验证工具</a>
-            <a href={withSource('/opportunities')}>机会雷达</a>
+            <a href={withSource('/opportunities')}>商机雷达</a>
             <a href={withSource('/opportunities?tab=signals')}>市场信号榜</a>
             <a href={withSource('/resources')}>执行支持</a>
           </nav>

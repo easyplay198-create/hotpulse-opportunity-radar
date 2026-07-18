@@ -20,7 +20,7 @@ export function TopNav() {
 
   const navItems: NavItem[] = [
     { label: '首页', href: withSource('/'), navKey: 'home' },
-    { label: '机会雷达', href: withSource('/opportunities'), navKey: 'opportunities' },
+    { label: '商机雷达', href: withSource('/opportunities'), navKey: 'opportunities' },
     { label: '验证工具', href: withSource('/analyze'), navKey: 'analyze' },
     { label: '我的报告', href: withSource('/report'), navKey: 'report' },
     { label: '执行支持', href: withSource('/resources'), navKey: 'resources' },
@@ -35,7 +35,7 @@ export function TopNav() {
           <p className={styles.subtitle}>AI驱动的出海商机发现与验证系统</p>
         </div>
         <div className={styles.actions}>
-          <a className={styles.ghostButton} href={withSource('/opportunities')}>查看机会雷达</a>
+          <a className={styles.ghostButton} href={withSource('/opportunities')}>查看商机雷达</a>
           <a className={styles.primaryButton} href={withSource('/analyze')}>开始验证</a>
         </div>
       </div>

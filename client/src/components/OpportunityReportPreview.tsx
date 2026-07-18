@@ -65,7 +65,7 @@ export function OpportunityReportPreview({ item, onBack }: OpportunityReportPrev
   return (
     <div className="report-preview">
       <div className="report-preview__topbar">
-        <button type="button" className="report-preview__backButton" onClick={handleBack}>返回机会雷达</button>
+        <button type="button" className="report-preview__backButton" onClick={handleBack}>返回商机雷达</button>
       </div>
 
       <ReportHeroConclusion
