@@ -14,6 +14,7 @@ import { getFirstPartyCapabilityProfiles, getFirstPartyMarketProfile } from './k
 import { buildLlmDraftForAnalyze } from './analyze/llmOrchestrator.js';
 import { canonicalSnapshotsEqual, createCanonicalInvariantSnapshot } from './analyze/llmGuardrails.js';
 import { STREAM_EVENTS, STREAM_STAGES, summarizeProviderError } from './analyze/streamProtocol.js';
+import { createCorsOriginValidator } from './corsPolicy.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -38,34 +39,8 @@ const CURSOR_PROVIDER_QUOTAS = {
 const opportunitiesCache = new Map();
 const opportunityPoolSnapshots = new Map();
 
-const allowedOrigins = (process.env.CLIENT_ORIGIN || '')
-  .split(',')
-  .map((value) => value.trim())
-  .filter(Boolean);
-
 app.use(cors({
-  origin(origin, callback) {
-    if (!origin) {
-      callback(null, true);
-      return;
-    }
-
-    if (allowedOrigins.length > 0) {
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-      callback(new Error('Not allowed by CORS'));
-      return;
-    }
-
-    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
-      callback(null, true);
-      return;
-    }
-
-    callback(null, true);
-  },
+  origin: createCorsOriginValidator(process.env.CLIENT_ORIGIN),
 }));
 app.use(express.json());
 
