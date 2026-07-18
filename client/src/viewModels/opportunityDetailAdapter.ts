@@ -6,6 +6,7 @@ import type {
   OpportunityDetailRiskItem,
   OpportunityDetailViewModel,
 } from '../types/opportunityDetail';
+import { toPublicBrandText } from '../lib/publicBrand';
 
 const EXTERNAL_PROVIDER_SOURCE_MAP: Array<{ pattern: RegExp; sourceType: EvidenceSourceCategory }> = [
   { pattern: /^apple app store$/i, sourceType: 'app_store' },
@@ -15,7 +16,7 @@ const EXTERNAL_PROVIDER_SOURCE_MAP: Array<{ pattern: RegExp; sourceType: Evidenc
   { pattern: /^gdelt$/i, sourceType: 'news' },
 ];
 
-const KNOWLEDGE_BASE_SOURCE_PATTERN = /^hotpulse market knowledge$/i;
+const KNOWLEDGE_BASE_SOURCE_PATTERN = /^(?:hotpulse|praxon) market knowledge$/i;
 const EVIDENCE_STRENGTH_RANK = {
   high: 3,
   medium: 2,
@@ -73,8 +74,9 @@ export function mapEvidenceProvenance(evidence: EvidenceItem): EvidenceProvenanc
 }
 
 export function normalizeEvidence(evidence: EvidenceItem): NormalizedEvidence {
-  const sourceName = asNonEmptyString(evidence.source) ?? 'Unknown Source';
-  const sourceType = mapEvidenceSourceCategory(sourceName);
+  const rawSourceName = asNonEmptyString(evidence.source) ?? 'Unknown Source';
+  const sourceName = toPublicBrandText(rawSourceName);
+  const sourceType = mapEvidenceSourceCategory(rawSourceName);
   const sourceUrl = isValidHttpUrl(evidence.url) ? evidence.url : undefined;
   const retrievedAt = isValidIsoTime(evidence.retrievedAt) ? evidence.retrievedAt : undefined;
 

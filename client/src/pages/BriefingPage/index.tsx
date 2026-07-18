@@ -43,7 +43,7 @@ function BriefItemCard({ item, dataSource }: { item: DailyIntelligenceBriefItem;
       <p style={{ margin: 0, color: '#5a6678', lineHeight: 1.55 }}>{shortText(item.opportunityInsight, 60)}</p>
       <p style={{ margin: 0, color: '#5a6678' }}><strong>适合：</strong>{shortText(item.suitableFor, 30)}</p>
       <p style={{ margin: 0, color: '#5a6678' }}><strong>验证：</strong>{shortText(item.validationDirection, 50)}</p>
-      <a href={reportHref} style={{ width: 'fit-content', borderRadius: 999, padding: '10px 14px', background: '#244b86', color: '#fff', fontWeight: 800, textDecoration: 'none' }}>{item.id.includes('worth') ? '查看机会雷达' : '查看市场信号榜'}</a>
+      <a href={reportHref} style={{ width: 'fit-content', borderRadius: 999, padding: '10px 14px', background: '#244b86', color: '#fff', fontWeight: 800, textDecoration: 'none' }}>{item.id.includes('worth') ? '查看商机雷达' : '查看市场信号榜'}</a>
     </article>
   );
 }

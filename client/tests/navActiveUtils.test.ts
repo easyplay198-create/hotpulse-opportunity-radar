@@ -9,7 +9,7 @@ describe('getActiveNavKey — route matching', () => {
     assert.equal(getActiveNavKey('/'), 'home');
   });
 
-  it('/opportunities highlights opportunities (机会雷达)', () => {
+  it('/opportunities highlights opportunities (商机雷达)', () => {
     assert.equal(getActiveNavKey('/opportunities'), 'opportunities');
   });
 

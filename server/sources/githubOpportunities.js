@@ -106,7 +106,7 @@ async function fetchQuery(query) {
   const url = `${GITHUB_SEARCH}?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=${GITHUB_PER_PAGE}`;
   const resp = await fetch(url, {
     headers: {
-      'User-Agent': 'HotPulse-Market-Radar',
+      'User-Agent': 'PRAXON-Market-Radar',
       Accept: 'application/vnd.github+json',
     },
   });

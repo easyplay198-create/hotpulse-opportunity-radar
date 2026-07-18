@@ -262,7 +262,7 @@ function EmptyState() {
       <p>完成一次项目验证后，点击“保存到我的报告”，即可在当前浏览器中回看结论和行动计划。</p>
       <div className={styles.actionRow}>
         <a className={styles.primaryButton} href="/analyze?source=real">开始验证自己的项目</a>
-        <a className={styles.secondaryButton} href="/opportunities?source=real">去机会雷达选择机会</a>
+        <a className={styles.secondaryButton} href="/opportunities?source=real">去商机雷达选择机会</a>
       </div>
     </section>
   );
@@ -548,7 +548,7 @@ export function ReportPage() {
         />
         <div className={styles.actionRow}>
           <a className={styles.primaryButton} href="/analyze?source=real">开始新的验证</a>
-          <a className={styles.secondaryButton} href="/opportunities?source=real">去机会雷达选择方向</a>
+          <a className={styles.secondaryButton} href="/opportunities?source=real">去商机雷达选择方向</a>
         </div>
         {reportId ? (
           selectedReport ? (

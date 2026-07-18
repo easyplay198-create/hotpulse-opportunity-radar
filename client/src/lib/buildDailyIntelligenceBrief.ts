@@ -1,5 +1,6 @@
 import type { DiscoverableOpportunity } from './buildDiscoverableOpportunities';
 import type { EvidenceStrength, HotItem } from '../types/hot';
+import { toPublicBrandText } from './publicBrand';
 
 export type DailyBriefSourceStatus = 'real' | 'mock' | 'fallback';
 
@@ -88,7 +89,7 @@ function newestTime(item: HotItem) {
 }
 
 function primaryEvidenceSource(item: HotItem) {
-  return item.evidence?.[0]?.source ?? item.platformId ?? 'unknown';
+  return toPublicBrandText(item.evidence?.[0]?.source ?? item.platformId ?? 'unknown');
 }
 
 function signalTypeFromItem(item: HotItem): DailyBriefSignalType {
@@ -209,7 +210,7 @@ function buildManualCaseSeeds(): DailyIntelligenceBriefItem[] {
     {
       id: 'brief-manual-case-ai-workflow',
       title: 'Agent 工作流从通用助手转向垂直执行链路',
-      source: 'HotPulse manual seed',
+      source: 'PRAXON manual seed',
       sourceType: 'manual_seed',
       category: 'Agent 工作流',
       summary: '手工样例：用于验证“案例 / 模式观察”栏目结构，不代表今日真实市场结论。',
@@ -225,7 +226,7 @@ function buildManualCaseSeeds(): DailyIntelligenceBriefItem[] {
     {
       id: 'brief-manual-case-local-payment',
       title: '出海订阅产品需要把本地支付作为验证变量',
-      source: 'HotPulse manual seed',
+      source: 'PRAXON manual seed',
       sourceType: 'manual_seed',
       category: '支付 / 订阅',
       summary: '手工样例：用于验证“案例 / 模式观察”栏目结构，不代表今日真实市场结论。',

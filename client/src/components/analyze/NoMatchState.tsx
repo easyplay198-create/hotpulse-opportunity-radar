@@ -9,7 +9,7 @@ export function NoMatchState({ evidenceGaps, rejectedSignals, nextStep }: { evid
   return (
     <section style={{ display: 'grid', gap: 16, padding: 20, borderRadius: 22, background: '#fff7ed', border: '1px solid #fed7aa' }}>
       <h2 style={{ margin: 0, color: '#9a3412' }}>当前没有找到足够相关的可追溯机会</h2>
-      <p style={{ margin: 0, color: '#9a3412', lineHeight: 1.7 }}>HotPulse 不建议基于无关信号做进入判断。</p>
+      <p style={{ margin: 0, color: '#9a3412', lineHeight: 1.7 }}>PRAXON 不建议基于无关信号做进入判断。</p>
       <div style={{ display: 'grid', gap: 10 }}>
         <h3 style={{ margin: 0, color: '#9a3412', fontSize: 16 }}>证据缺口</h3>
         <ul style={{ margin: 0, paddingLeft: 18, color: '#9a3412', lineHeight: 1.7 }}>

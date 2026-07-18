@@ -1,3 +1,5 @@
+import { toPublicBrandText } from '../../lib/publicBrand';
+
 type SourceMode = 'real' | 'mock' | 'fallback';
 
 const ENGINEERING_COPY_RULES: Array<[RegExp, string]> = [
@@ -39,7 +41,7 @@ const SOURCE_LABELS: Record<SourceMode, string> = {
 };
 
 export function cleanAnalyzePresentationCopy(value: unknown, fallback = '') {
-  let text = typeof value === 'string' ? value.trim() : '';
+  let text = typeof value === 'string' ? toPublicBrandText(value.trim()) : '';
   if (!text) return fallback;
 
   for (const [pattern, replacement] of ENGINEERING_COPY_RULES) {

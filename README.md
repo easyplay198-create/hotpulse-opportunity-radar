@@ -1,6 +1,6 @@
-# 万道出海 · HotPulse / HotPulse Market Opportunity Radar
+# PRAXON / 派克森商机雷达
 
-万道出海 · HotPulse 是一个“出海企业情报站 + MVP 前市场验证与机会决策系统”。
+PRAXON（中文名：派克森，传播名：派克森商机雷达）是“AI驱动的出海商机发现与验证系统”。
 
 它不是旧版热点速判工具，不是内容创作者选题工具，不是普通 AI 热榜，也不是大而全数据聚合平台。
 
@@ -30,7 +30,7 @@
 - Apple App Store / iTunes Search API：应用商店信号（当前 10 条）
 - GitHub Search API：开发者 / 开源趋势信号（当前 10 条）
 - Product Hunt GraphQL API：新产品趋势与发布信号（配置 `PRODUCT_HUNT_TOKEN` 时最多 10 条）
-- HotPulse Market Knowledge：静态市场进入知识库，用于支付、本地化、合规、获客、AI 成本等进入前诊断
+- PRAXON Market Knowledge：静态市场进入知识库，用于支付、本地化、合规、获客、AI 成本等进入前诊断
 
 3. fallback
 - 当前端 API 不可用时使用本地 seed

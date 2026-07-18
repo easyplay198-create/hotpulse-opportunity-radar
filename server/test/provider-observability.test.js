@@ -381,6 +381,59 @@ test('HotPulse Market Knowledge evidence does not create provider candidate coun
   assertDropAccounting(result);
 });
 
+test('PRAXON Market Knowledge evidence remains an internal knowledge source', async () => {
+  const item = providerFixtureItem({
+    id: 'hn-praxon-knowledge-1',
+    source: 'Hacker News',
+    evidence: [
+      {
+        title: 'HN evidence',
+        url: 'https://example.com/hn-praxon-knowledge-1',
+        source: 'Hacker News',
+        type: 'community_signal',
+        retrievedAt: '2026-06-13T00:00:00.000Z',
+        evidenceStrength: 'medium',
+      },
+      {
+        title: 'Market knowledge',
+        url: null,
+        source: 'PRAXON Market Knowledge',
+        type: 'industry_report',
+        retrievedAt: '2026-06-13T00:00:00.000Z',
+        evidenceStrength: 'medium',
+      },
+    ],
+  });
+
+  const result = await buildRealOpportunitiesWithProviders(providers({
+    hackerNews: async () => withMeta([item], {
+      requestedCount: 1,
+      rawCount: 1,
+      mappedCount: 1,
+      validCount: 1,
+    }),
+    gdelt: async () => ({
+      ok: false,
+      errorClass: 'no_results',
+      skippedReason: 'GDELT returned no articles',
+      items: [],
+      providerMeta: {
+        requestedCount: 30,
+        rawCount: 0,
+        mappedCount: 0,
+        validCount: 0,
+        droppedCount: 0,
+        dropReasons: {},
+      },
+    }),
+  }));
+
+  assert.equal(result.poolStats.rawCount, 1);
+  assert.equal(result.providerStats.hackerNews.finalCount, 1);
+  assert.equal(result.items[0]?.evidence.some((evidence) => evidence.source === 'PRAXON Market Knowledge'), true);
+  assertDropAccounting(result);
+});
+
 test('poolStats sums provider raw mapped valid counts and final counts are attributable', async () => {
   const result = await buildRealOpportunitiesWithProviders(providers({
     hackerNews: async () => withMeta(itemsFor('Hacker News', 3), { rawCount: 3, mappedCount: 3, validCount: 3 }),

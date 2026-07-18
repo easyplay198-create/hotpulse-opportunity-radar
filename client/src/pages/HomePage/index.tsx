@@ -410,8 +410,8 @@ export function HomePage() {
         <section className={styles.section} aria-label="方法概览">
           <div className={`${styles.sectionHead} ${styles.balancedHead}`}>
             <div>
-              <div className={styles.sectionLabel}>How HotPulse Works</div>
-              <div className={styles.sectionTitle}>HotPulse 如何把市场信号变成进入判断</div>
+              <div className={styles.sectionLabel}>How PRAXON Works</div>
+              <div className={styles.sectionTitle}>PRAXON 如何把市场信号变成进入判断</div>
             </div>
             <div className={styles.sectionDesc}>不是看到热点就开做，而是先把信号、风险和下一步动作拆清楚。</div>
           </div>
@@ -437,14 +437,14 @@ export function HomePage() {
             </div>
           </div>
           <div className={styles.productPath}>
-            <p className={styles.pathIntro}>机会雷达发现方向，验证工具判断方向，报告页沉淀结论，并在需要时连接顾问和执行支持。</p>
+            <p className={styles.pathIntro}>商机雷达发现方向，验证工具判断方向，报告页沉淀结论，并在需要时连接顾问和执行支持。</p>
             <div className={styles.pathStack}>
               <article className={styles.pathRow}>
                 <div className={styles.pathMain}>
                   <div className={styles.pathStep}>Step 01</div>
-                  <h3 className={styles.pathTitle}>机会雷达 / 市场信号榜</h3>
+                  <h3 className={styles.pathTitle}>商机雷达 / 市场信号榜</h3>
                   <p className={styles.pathDesc}>每天沉淀市场信号和可验证方向，帮你发现值得进一步判断的机会。</p>
-                  <a className={styles.pathAction} href={withSource('/opportunities')}>查看机会雷达</a>
+                  <a className={styles.pathAction} href={withSource('/opportunities')}>查看商机雷达</a>
                 </div>
                 <div className={styles.pathSupport}>
                   <div className={styles.supportHeader}>
@@ -527,7 +527,7 @@ export function HomePage() {
               <div className={styles.sectionLabel}>Advisor Support</div>
               <div className={styles.sectionTitle}>验证之后，不止给结论</div>
             </div>
-            <div className={styles.sectionDesc}>如果方向值得继续，HotPulse 可以继续帮你把下一步拆成可执行动作。</div>
+            <div className={styles.sectionDesc}>如果方向值得继续，PRAXON 可以继续帮你把下一步拆成可执行动作。</div>
           </div>
           <div className={styles.cardGrid}>
             {advisorCards.map((card) => (
@@ -559,15 +559,15 @@ export function HomePage() {
         </section>
 
         <footer className={styles.footer} aria-label="页脚">
-          <div className={styles.footerBrand}><strong>HotPulse</strong><span>市场 MVP 验证系统</span></div>
+          <div className={styles.footerBrand}><strong>PRAXON</strong><span>AI驱动的出海商机发现与验证系统</span></div>
           <nav className={styles.footerNav} aria-label="页脚导航">
             <a href={withSource('/')}>首页</a>
             <a href={withSource('/analyze')}>验证工具</a>
-            <a href={withSource('/opportunities')}>机会雷达</a>
+            <a href={withSource('/opportunities')}>商机雷达</a>
             <a href={withSource('/opportunities?tab=signals')}>市场信号榜</a>
             <a href={withSource('/resources')}>执行支持</a>
           </nav>
-          <div className={styles.footerMeta}>HotPulse · Market MVP Validation OS</div>
+          <div className={styles.footerMeta}>派克森商机雷达 · PRAXON</div>
         </footer>
       </div>
     </AppShell>

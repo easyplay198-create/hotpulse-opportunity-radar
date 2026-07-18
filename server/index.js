@@ -54,6 +54,7 @@ function isValidHttpUrl(value) {
 
 function isInternalMarketKnowledgeEvidence(ev) {
   return ev?.source === 'HotPulse Market Knowledge'
+    || ev?.source === 'PRAXON Market Knowledge'
     || ev?.metadata?.knowledgeType === 'static_market_entry';
 }
 
@@ -1117,7 +1118,7 @@ function buildRuleAnalyzeResponse({ query, profile, source, loaded }) {
   const rejectedSignals = scored.filter((entry) => entry.relevance.finalRelevanceScore < 45).slice(0, 5).map((entry) => ({ id: entry.item.id, title: entry.item.title, finalRelevanceScore: entry.relevance.finalRelevanceScore, rejectionReason: entry.relevance.rejectionReason || '与当前输入方向不相关。' }));
   const noMatch = strongMatches.length === 0;
   const recommendation = noMatch ? {
-    title: '当前缺少足够相关信号，建议先做小样本验证', verdict: '持续观察', matchScore: Math.max(0, eligible[0]?.relevance.finalRelevanceScore ?? 0), targetMarket: intent.targetMarket, evidenceStrength: 'low', summary: '当前信号库中没有找到与该方向高度相关的可追溯信号。HotPulse 不建议基于无关信号做进入判断。', nextStep: '先明确目标市场、产品形态和变现方式，再用 landing page、访谈和小预算测试验证需求。'
+    title: '当前缺少足够相关信号，建议先做小样本验证', verdict: '持续观察', matchScore: Math.max(0, eligible[0]?.relevance.finalRelevanceScore ?? 0), targetMarket: intent.targetMarket, evidenceStrength: 'low', summary: '当前信号库中没有找到与该方向高度相关的可追溯信号。PRAXON 不建议基于无关信号做进入判断。', nextStep: '先明确目标市场、产品形态和变现方式，再用 landing page、访谈和小预算测试验证需求。'
   } : {
     title: `${intent.targetMarket} · ${intent.productCategory} 验证建议`, verdict: topScore >= 80 ? '优先验证' : '持续观察', matchScore: topScore, targetMarket: intent.targetMarket, evidenceStrength: strongestEvidence(top) >= 3 ? 'high' : strongestEvidence(top) >= 2 ? 'medium' : 'low', summary: `当前最相关信号是「${top.title}」，建议只把它作为验证参考，不要直接当成市场结论。`, nextStep: sevenDayPlan[0], reportItemId: top.id
   };
@@ -1145,7 +1146,7 @@ function buildRuleAnalyzeResponse({ query, profile, source, loaded }) {
     ],
     evidenceBoard: [
       { title: '用户输入的项目方向', source: '用户输入', sourceType: 'user_input', evidenceStrength: 'medium', supports: '项目理解与关键假设拆解', url: null, sourceItemId: null, note: '来自用户输入，不代表外部市场证据。' },
-      ...matchedSignals.slice(0, 3).map((item) => ({ title: item.title, source: item.evidence?.[0]?.source || item.platformId || 'HotPulse', sourceType: loaded.source === 'real' ? 'real_signal' : 'mock_signal', evidenceStrength: item.evidence?.[0]?.evidenceStrength || 'low', supports: '与项目方向相关的市场信号参考', url: item.evidence?.[0]?.url || null, sourceItemId: item.id, note: loaded.source === 'real' ? '可追溯市场信号。' : '结构演示，不代表真实市场结论。' })),
+      ...matchedSignals.slice(0, 3).map((item) => ({ title: item.title, source: item.evidence?.[0]?.source || item.platformId || 'PRAXON', sourceType: loaded.source === 'real' ? 'real_signal' : 'mock_signal', evidenceStrength: item.evidence?.[0]?.evidenceStrength || 'low', supports: '与项目方向相关的市场信号参考', url: item.evidence?.[0]?.url || null, sourceItemId: item.id, note: loaded.source === 'real' ? '可追溯市场信号。' : '结构演示，不代表真实市场结论。' })),
     ],
     projectEvaluation: [
       { label: '输入相关性', score: Math.max(50, topScore || 55), explanation: '基于输入完整度和候选相关性。' },
@@ -1243,7 +1244,7 @@ function normalizeJudgmentEvidence(response, sourceMode) {
     records.push({
       title: signal.title || primary.title || '市场信号',
       summary: signal.summary || primary.note || primary.supports || '可追溯市场信号，用于辅助验证方向。',
-      source: primary.source || signal.source || 'HotPulse',
+      source: primary.source || signal.source || 'PRAXON',
       sourceType: normalizeEvidenceSourceType(primary, sourceMode),
       url: primary.url || null,
       strength: calculateEvidenceStrength(primary, sourceMode),
@@ -1259,7 +1260,7 @@ function normalizeJudgmentEvidence(response, sourceMode) {
     records.push({
       title: item.title || '验证证据',
       summary: item.supports || item.note || '用于辅助判断的证据项。',
-      source: item.source || 'HotPulse',
+      source: item.source || 'PRAXON',
       sourceType: normalizeEvidenceSourceType(item, sourceMode),
       url: item.url || null,
       strength: calculateEvidenceStrength(item, sourceMode),
@@ -1854,7 +1855,7 @@ function normalizeFirstPartyEvidence(firstPartyKnowledge) {
     summary: value.signals?.[0]?.reportOnly
       ? '出海关键约束预览。完整原因和操作拆解适合放入 Report 页。'
       : value.verdictImpact,
-    source: 'HotPulse First-Party Knowledge Core',
+    source: 'PRAXON First-Party Knowledge Core',
     sourceType: 'first_party_knowledge',
     url: null,
     strength: value.provenance === 'knowledge_base' || value.signals?.some((signal) => signal.evidenceType === 'first_party_knowledge') ? 'medium' : 'low',
@@ -2392,13 +2393,13 @@ app.post('/api/analyze/stream', async (req, res) => {
 
 function startServer(port = PORT) {
   const server = app.listen(port, () => {
-    console.log(`HotPulse mock API server running at http://localhost:${port}`);
+    console.log(`PRAXON mock API server running at http://localhost:${port}`);
     console.log(`PID: ${process.pid}`);
     console.log(`NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
   });
 
   server.on('error', (error) => {
-    console.error('HotPulse server failed to start', error);
+    console.error('PRAXON server failed to start', error);
   });
 
   return server;

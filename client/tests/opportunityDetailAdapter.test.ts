@@ -222,6 +222,19 @@ describe('Evidence normalization', () => {
     const normalized = normalizeEvidence(evidence);
     assert.equal(normalized.sourceType, 'knowledge_base');
     assert.equal(normalized.provenance, 'knowledge_base');
+    assert.equal(normalized.sourceName, 'PRAXON Market Knowledge');
+  });
+
+  it('PRAXON Market Knowledge -> knowledge_base', () => {
+    const evidence = sampleEvidence({
+      source: 'PRAXON Market Knowledge',
+      type: 'industry_report',
+      url: null,
+    });
+    const normalized = normalizeEvidence(evidence);
+    assert.equal(normalized.sourceType, 'knowledge_base');
+    assert.equal(normalized.provenance, 'knowledge_base');
+    assert.equal(normalized.sourceName, 'PRAXON Market Knowledge');
   });
 
   it('unknown source -> unknown', () => {
