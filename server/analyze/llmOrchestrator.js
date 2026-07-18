@@ -5,7 +5,7 @@ import { normalizeOpenAIBaseUrl, normalizeOpenAITimeoutMs, openAIBaseUrlHost } f
 
 function systemPrompt() {
   return [
-    '你是 HotPulse 的 LLM draft writer，不是最终裁判。',
+    '你是 PRAXON 的 LLM draft writer，不是最终裁判。',
     '目标用户是中国 AI / SaaS / App 出海小团队。',
     'canonical verdict、confidence、firstPartyKnowledge、provenance、evidenceStrength 已由系统计算完成。',
     '你只能根据输入的可信 core payload 写解释性草稿。',
@@ -359,7 +359,7 @@ export async function buildLlmDraftForAnalyze({ canonicalResponse, apiKey, model
     timeoutMs: selectedTimeoutMs,
   });
   const elapsedMs = Date.now() - startedAt;
-  console.info(`HotPulse llmDraft endpoint=${selectedEndpointStyle} host=${openAIBaseUrlHost(selectedBaseUrl)} model=${selectedModel} timeoutMs=${selectedTimeoutMs} status=${result.status} elapsedMs=${elapsedMs}`);
+  console.info(`PRAXON llmDraft endpoint=${selectedEndpointStyle} host=${openAIBaseUrlHost(selectedBaseUrl)} model=${selectedModel} timeoutMs=${selectedTimeoutMs} status=${result.status} elapsedMs=${elapsedMs}`);
 
   if (result.status !== 'success') {
     return draftWithStatus(deterministicFallback, corePayload, result.status, {

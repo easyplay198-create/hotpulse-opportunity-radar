@@ -34,7 +34,7 @@ export function AnalyzeInputQualityGate({ missing, query, onExampleApply }: Prop
           <span className={styles.qualityEyebrow}>Input Quality Gate</span>
           <h2 className={styles.qualityTitle}>还差 {missing.length} 项关键信息，暂不进入验证</h2>
           <p className={styles.qualitySubtitle}>
-            当前已识别 {completedCount}/5 项。HotPulse 会先拦截低质量输入，避免把不完整描述误判成市场结论。
+            当前已识别 {completedCount}/5 项。PRAXON 会先拦截低质量输入，避免把不完整描述误判成市场结论。
           </p>
         </div>
         <div className={styles.qualityScoreBadge}>{completedCount}/5</div>

@@ -11,6 +11,13 @@ import type { AnalyzeProgressEvent, AnalyzeProviderEvent, AnalyzeStreamStatus, A
 import { buildMarketMvpResearchProtocol, type MarketMvpResearchProtocol } from '../../lib/marketMvpResearchProtocol';
 import { buildReportInputFromProfile, saveReport } from '../../lib/reportStorage';
 import {
+  clearMigratedStorageItems,
+  readMigratedStorageItem,
+  STORAGE_KEY_MIGRATIONS,
+  withStorageKeySuffix,
+  writeCurrentStorageItem,
+} from '../../lib/storageMigration';
+import {
   applyFieldAnswer,
   clarificationStatusLabel,
   countExplicitFields,
@@ -28,14 +35,20 @@ import styles from './AnalyzePage.module.css';
 
 type AnalyzeSource = 'real' | 'mock' | 'fallback';
 
-const ANALYZE_QUERY_KEY = 'hotpulse_analyze_query';
-const AUTO_RUN_ONCE_PREFIX = 'hotpulse_auto_run_once';
 const DEFAULT_PROFILE: AnalyzeProfile = {
   productStage: '想法阶段',
   targetMarket: 'Global',
   budgetRange: '$0-$50',
   validationGoal: '需求是否存在',
 };
+
+function readAnalyzeQuery() {
+  return readMigratedStorageItem(window.sessionStorage, STORAGE_KEY_MIGRATIONS.analyzeQuery) ?? '';
+}
+
+function writeAnalyzeQuery(value: string) {
+  writeCurrentStorageItem(window.sessionStorage, STORAGE_KEY_MIGRATIONS.analyzeQuery, value);
+}
 
 type AssumptionStatus = 'identified' | 'missing' | 'profile';
 
@@ -1189,7 +1202,7 @@ export function AnalyzePage() {
     ? `${opportunityIdFromUrl || 'opportunity'}:${productTypeFromUrl}:${queryFromUrl.trim()}`
     : null;
   const [source, setSource] = useState<AnalyzeSource>(() => getSource());
-  const [query, setQuery] = useState(() => queryFromUrl || window.sessionStorage.getItem(ANALYZE_QUERY_KEY) || '');
+  const [query, setQuery] = useState(() => queryFromUrl || readAnalyzeQuery());
   const [profile, setProfile] = useState<AnalyzeProfile>(() => ({
     ...DEFAULT_PROFILE,
     targetMarket: targetMarketFromUrl || DEFAULT_PROFILE.targetMarket,
@@ -1257,7 +1270,7 @@ export function AnalyzePage() {
   }, []);
 
   useEffect(() => { setSource(getSource()); }, []);
-  useEffect(() => { window.sessionStorage.setItem(ANALYZE_QUERY_KEY, query); }, [query]);
+  useEffect(() => { writeAnalyzeQuery(query); }, [query]);
 
   useEffect(() => {
     if (workflowRunStatus === 'idle') {
@@ -1284,7 +1297,7 @@ export function AnalyzePage() {
     setError(null);
     setClarificationSession(null);
     setClarificationFocusRequest(null);
-    window.sessionStorage.setItem(ANALYZE_QUERY_KEY, nextQuery);
+    writeAnalyzeQuery(nextQuery);
   };
 
   const runAnalyze = useCallback(async (
@@ -1460,14 +1473,14 @@ export function AnalyzePage() {
   useEffect(() => {
     if (!autoRunKey || analyzing) return;
     if (handledAutoRunRef.current === autoRunKey) return;
-    const autoRunOnceKey = `${AUTO_RUN_ONCE_PREFIX}:${autoRunKey}`;
-    if (window.sessionStorage.getItem(autoRunOnceKey) === '1') return;
+    const autoRunOnceStorage = withStorageKeySuffix(STORAGE_KEY_MIGRATIONS.autoRunOnce, autoRunKey);
+    if (readMigratedStorageItem(window.sessionStorage, autoRunOnceStorage, (value) => value === '1') === '1') return;
 
     const autoBrief = queryFromUrl.trim();
     if (!autoBrief) return;
 
     handledAutoRunRef.current = autoRunKey;
-    window.sessionStorage.setItem(autoRunOnceKey, '1');
+    writeCurrentStorageItem(window.sessionStorage, autoRunOnceStorage, '1');
     const requestedSource = getSource();
     const seed: ClarificationParseSeed = {
       productType: productTypeFromUrl || undefined,
@@ -1492,11 +1505,11 @@ export function AnalyzePage() {
     setSavedReportId(null);
     setError(null);
     setAnalyzing(false);
-    window.sessionStorage.setItem(ANALYZE_QUERY_KEY, autoBrief);
+    writeAnalyzeQuery(autoBrief);
     if (hasAllExplicit(parsed.fields)) {
       const mergedBrief = mergeStructuredBrief(autoBrief, nextGateConditions);
       setQuery(mergedBrief);
-      window.sessionStorage.setItem(ANALYZE_QUERY_KEY, mergedBrief);
+      writeAnalyzeQuery(mergedBrief);
       void runAnalyze(mergedBrief, requestedSource, {
         ...nextProfile,
         targetMarket: nextGateConditions.targetMarket,
@@ -1545,7 +1558,7 @@ export function AnalyzePage() {
     setWorkflowActivityLog([]);
     workflowScrolledRef.current = false;
     lastAutoScrolledResultRef.current = null;
-    window.sessionStorage.removeItem(ANALYZE_QUERY_KEY);
+    clearMigratedStorageItems(window.sessionStorage, STORAGE_KEY_MIGRATIONS.analyzeQuery);
   };
 
   const viewResult = useMemo(() => normalizeViewResult(result), [result]);
@@ -1637,7 +1650,7 @@ export function AnalyzePage() {
       setClarificationFocusRequest(null);
       setQuery(mergedBrief);
       setProfile(nextProfile);
-      window.sessionStorage.setItem(ANALYZE_QUERY_KEY, mergedBrief);
+      writeAnalyzeQuery(mergedBrief);
       void runAnalyze(mergedBrief, source, nextProfile);
       return;
     }
@@ -1810,7 +1823,7 @@ export function AnalyzePage() {
     setProfile(nextProfile);
     setClarificationSession(null);
     setClarificationFocusRequest(null);
-    window.sessionStorage.setItem(ANALYZE_QUERY_KEY, mergedBrief);
+    writeAnalyzeQuery(mergedBrief);
     void runAnalyze(mergedBrief, source, nextProfile);
   }, [analyzing, clarificationSession, focusFirstUnresolvedField, profile, runAnalyze, source]);
 

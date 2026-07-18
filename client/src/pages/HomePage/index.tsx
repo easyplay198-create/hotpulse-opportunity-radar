@@ -410,8 +410,8 @@ export function HomePage() {
         <section className={styles.section} aria-label="方法概览">
           <div className={`${styles.sectionHead} ${styles.balancedHead}`}>
             <div>
-              <div className={styles.sectionLabel}>How HotPulse Works</div>
-              <div className={styles.sectionTitle}>HotPulse 如何把市场信号变成进入判断</div>
+              <div className={styles.sectionLabel}>How PRAXON Works</div>
+              <div className={styles.sectionTitle}>PRAXON 如何把市场信号变成进入判断</div>
             </div>
             <div className={styles.sectionDesc}>不是看到热点就开做，而是先把信号、风险和下一步动作拆清楚。</div>
           </div>
@@ -527,7 +527,7 @@ export function HomePage() {
               <div className={styles.sectionLabel}>Advisor Support</div>
               <div className={styles.sectionTitle}>验证之后，不止给结论</div>
             </div>
-            <div className={styles.sectionDesc}>如果方向值得继续，HotPulse 可以继续帮你把下一步拆成可执行动作。</div>
+            <div className={styles.sectionDesc}>如果方向值得继续，PRAXON 可以继续帮你把下一步拆成可执行动作。</div>
           </div>
           <div className={styles.cardGrid}>
             {advisorCards.map((card) => (
@@ -559,7 +559,7 @@ export function HomePage() {
         </section>
 
         <footer className={styles.footer} aria-label="页脚">
-          <div className={styles.footerBrand}><strong>HotPulse</strong><span>市场 MVP 验证系统</span></div>
+          <div className={styles.footerBrand}><strong>PRAXON</strong><span>AI驱动的出海商机发现与验证系统</span></div>
           <nav className={styles.footerNav} aria-label="页脚导航">
             <a href={withSource('/')}>首页</a>
             <a href={withSource('/analyze')}>验证工具</a>
@@ -567,7 +567,7 @@ export function HomePage() {
             <a href={withSource('/opportunities?tab=signals')}>市场信号榜</a>
             <a href={withSource('/resources')}>执行支持</a>
           </nav>
-          <div className={styles.footerMeta}>HotPulse · Market MVP Validation OS</div>
+          <div className={styles.footerMeta}>派克森商机雷达 · PRAXON</div>
         </footer>
       </div>
     </AppShell>

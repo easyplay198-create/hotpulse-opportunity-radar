@@ -1,6 +1,6 @@
-# 万道出海 · 机会雷达
+# PRAXON / 派克森商机雷达
 
-HotPulse Market Opportunity Radar 是面向 AI 应用、工具出海、游戏出海团队的出海市场机会诊断仪表盘。
+PRAXON（中文名：派克森）是“AI驱动的出海商机发现与验证系统”。
 
 ## 前端启动
 

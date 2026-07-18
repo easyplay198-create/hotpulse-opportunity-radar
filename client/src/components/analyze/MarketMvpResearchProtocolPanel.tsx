@@ -317,7 +317,7 @@ function buildEvidenceDimensions(protocol: MarketMvpResearchProtocol, result: An
     return judgmentEvidence.slice(0, 8).map((item, index) => {
       const strength = item.strength ?? 'low';
       const currentStatus: EvidenceDimension['currentStatus'] = strength === 'high' ? '已验证' : strength === 'missing' ? '待补充' : '弱证据';
-      const rawSourceType = item.sourceType || item.source || 'HotPulse';
+      const rawSourceType = item.sourceType || item.source || 'PRAXON';
       const noUrlNote = !item.url && strength !== 'missing' ? ' 当前未发现真实 URL，强度不标记为 high。' : '';
       return {
         label: item.title || `证据 ${index + 1}`,

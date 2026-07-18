@@ -8,6 +8,11 @@ import {
   type OpportunitiesCacheStore,
   type OpportunitiesDataSource,
 } from '../../lib/opportunitiesCache';
+import {
+  readMigratedStorageItem,
+  STORAGE_KEY_MIGRATIONS,
+  writeCurrentStorageItem,
+} from '../../lib/storageMigration';
 import { AppShell } from '../../components/layout/AppShell';
 import { TopNav } from '../../components/layout/TopNav';
 import type { EvidenceItem, EvidenceStrength, HotItem, ProviderStats } from '../../types/hot';
@@ -21,6 +26,7 @@ import {
   type PublicSortKey,
 } from './presentation';
 import { buildAnalyzeHrefBySource, buildAnalyzeHrefFromOpportunity } from '../../lib/opportunityAnalyzeHref';
+import { toPublicBrandText } from '../../lib/publicBrand';
 import { OpportunityDecisionCard } from './components/OpportunityDecisionCard';
 import { OpportunityDecisionDrawer } from './components/OpportunityDecisionDrawer';
 import {
@@ -70,8 +76,16 @@ interface FilterState {
 
 const ALL = 'all';
 const UNKNOWN_MARKET = '市场待确认';
-const OPPORTUNITIES_CACHE_KEY = 'hotpulse.opportunitiesCache.v1';
 const REAL_PAGE_SIZE = 20;
+
+function isCacheStoreJson(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return Boolean(parsed && typeof parsed === 'object' && !Array.isArray(parsed));
+  } catch {
+    return false;
+  }
+}
 
 function sourceFromSearch(): DataSource {
   const source = new URLSearchParams(window.location.search).get('source');
@@ -88,26 +102,37 @@ function initialTab(): RadarTab {
 
 function readOpportunitiesCache(source: DataSource): OpportunitiesCacheEntry | null {
   try {
-    const raw = window.sessionStorage.getItem(OPPORTUNITIES_CACHE_KEY);
+    const raw = readMigratedStorageItem(
+      window.sessionStorage,
+      STORAGE_KEY_MIGRATIONS.opportunitiesCache,
+      isCacheStoreJson,
+    );
     if (!raw) return null;
     const parsed = JSON.parse(raw) as OpportunitiesCacheStore;
     return normalizeCachedOpportunitiesEntry(parsed?.[source], source);
   } catch {
-    window.sessionStorage.removeItem(OPPORTUNITIES_CACHE_KEY);
+    return null;
   }
-  return null;
 }
 
 function writeOpportunitiesCache(entry: OpportunitiesCacheEntry) {
   try {
-    const raw = window.sessionStorage.getItem(OPPORTUNITIES_CACHE_KEY);
+    const raw = readMigratedStorageItem(
+      window.sessionStorage,
+      STORAGE_KEY_MIGRATIONS.opportunitiesCache,
+      isCacheStoreJson,
+    );
     const current = raw ? JSON.parse(raw) as OpportunitiesCacheStore : {};
-    window.sessionStorage.setItem(OPPORTUNITIES_CACHE_KEY, JSON.stringify({
-      ...(current && typeof current === 'object' ? current : {}),
-      [entry.source]: entry,
-    }));
+    writeCurrentStorageItem(
+      window.sessionStorage,
+      STORAGE_KEY_MIGRATIONS.opportunitiesCache,
+      JSON.stringify({
+        ...(current && typeof current === 'object' ? current : {}),
+        [entry.source]: entry,
+      }),
+    );
   } catch {
-    window.sessionStorage.removeItem(OPPORTUNITIES_CACHE_KEY);
+    // Preserve both current and legacy cache entries when parsing fails.
   }
 }
 
@@ -189,9 +214,9 @@ function riskReason(item: HotItem) {
 
 function sourceNamesFor(item: HotItem) {
   const names = new Set<string>();
-  if (item.platformId?.trim()) names.add(item.platformId.trim());
+  if (item.platformId?.trim()) names.add(toPublicBrandText(item.platformId.trim()));
   for (const evidence of item.evidence ?? []) {
-    if (evidence.source?.trim()) names.add(evidence.source.trim());
+    if (evidence.source?.trim()) names.add(toPublicBrandText(evidence.source.trim()));
   }
   return [...names];
 }

@@ -15,7 +15,7 @@
       {
         "title": "市场进入知识库：Global",
         "url": null,
-        "source": "HotPulse Market Knowledge",
+        "source": "PRAXON Market Knowledge",
         "type": "industry_report",
         "retrievedAt": "2026-06-02T00:00:00.000Z",
         "evidenceStrength": "medium",
@@ -32,7 +32,7 @@
     "acquisitionRisk": 70,
     "aiCostRisk": 45,
     "entryNotes": ["支付基础设施成熟", "竞价流量成本高，需控制 CAC"],
-    "evidence": [{"title":"市场进入知识库：US","url":null,"source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
+    "evidence": [{"title":"市场进入知识库：US","url":null,"source":"PRAXON Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
   },
   {
     "market": "Japan",
@@ -43,7 +43,7 @@
     "acquisitionRisk": 70,
     "aiCostRisk": 40,
     "entryNotes": ["日语 UX 与客服本地化要求较高", "订阅市场成熟但获客成本偏高"],
-    "evidence": [{"title":"市场进入知识库：Japan","url":null,"source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
+    "evidence": [{"title":"市场进入知识库：Japan","url":null,"source":"PRAXON Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
   },
   {
     "market": "Indonesia",
@@ -54,7 +54,7 @@
     "acquisitionRisk": 58,
     "aiCostRisk": 42,
     "entryNotes": ["本地钱包与转账支付适配优先", "印尼语内容本地化影响转化"],
-    "evidence": [{"title":"市场进入知识库：Indonesia","url":null,"source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
+    "evidence": [{"title":"市场进入知识库：Indonesia","url":null,"source":"PRAXON Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
   },
   {
     "market": "Southeast Asia",
@@ -65,7 +65,7 @@
     "acquisitionRisk": 63,
     "aiCostRisk": 46,
     "entryNotes": ["多国家支付与税务规则差异较大", "建议按国家分批进入"],
-    "evidence": [{"title":"市场进入知识库：Southeast Asia","url":null,"source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"low","metadata":{"knowledgeType":"static_market_entry"}}]
+    "evidence": [{"title":"市场进入知识库：Southeast Asia","url":null,"source":"PRAXON Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"low","metadata":{"knowledgeType":"static_market_entry"}}]
   },
   {
     "market": "Latin America",
@@ -76,7 +76,7 @@
     "acquisitionRisk": 66,
     "aiCostRisk": 44,
     "entryNotes": ["本地支付方式分散，需要区域化配置", "西语/葡语素材转化差异明显"],
-    "evidence": [{"title":"市场进入知识库：Latin America","url":null,"source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
+    "evidence": [{"title":"市场进入知识库：Latin America","url":null,"source":"PRAXON Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"medium","metadata":{"knowledgeType":"static_market_entry"}}]
   },
   {
     "market": "Middle East",
@@ -87,6 +87,6 @@
     "acquisitionRisk": 62,
     "aiCostRisk": 43,
     "entryNotes": ["支付与内容合规前置评估必要", "文化语境适配影响留存"],
-    "evidence": [{"title":"市场进入知识库：Middle East","url":null,"source":"HotPulse Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"low","metadata":{"knowledgeType":"static_market_entry"}}]
+    "evidence": [{"title":"市场进入知识库：Middle East","url":null,"source":"PRAXON Market Knowledge","type":"industry_report","retrievedAt":"2026-06-02T00:00:00.000Z","evidenceStrength":"low","metadata":{"knowledgeType":"static_market_entry"}}]
   }
 ]

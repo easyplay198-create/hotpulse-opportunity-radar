@@ -1,6 +1,11 @@
 import type { AnalyzeProfile, AnalyzeResponse } from '../types/analyze';
+import {
+  readMigratedStorageItem,
+  STORAGE_KEY_MIGRATIONS,
+  writeCurrentStorageItem,
+} from './storageMigration';
 
-export const SAVED_REPORTS_KEY = 'hotpulse.savedReports.v1';
+export const SAVED_REPORTS_KEY = STORAGE_KEY_MIGRATIONS.savedReports.currentKey;
 const MAX_SAVED_REPORTS = 20;
 
 type SourceMode = 'real' | 'mock' | 'fallback';
@@ -195,7 +200,13 @@ function readReports(): SavedReportV1[] {
   const storage = getStorage();
   if (!storage) return [];
   try {
-    const raw = storage.getItem(SAVED_REPORTS_KEY);
+    const raw = readMigratedStorageItem(storage, STORAGE_KEY_MIGRATIONS.savedReports, (value) => {
+      try {
+        return Array.isArray(JSON.parse(value));
+      } catch {
+        return false;
+      }
+    });
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -216,8 +227,11 @@ function writeReports(reports: SavedReportV1[]) {
       .filter(isSavedReport)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, MAX_SAVED_REPORTS);
-    storage.setItem(SAVED_REPORTS_KEY, JSON.stringify(normalized));
-    return true;
+    return writeCurrentStorageItem(
+      storage,
+      STORAGE_KEY_MIGRATIONS.savedReports,
+      JSON.stringify(normalized),
+    );
   } catch {
     return false;
   }

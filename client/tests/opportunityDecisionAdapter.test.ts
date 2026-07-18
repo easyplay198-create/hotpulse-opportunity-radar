@@ -246,6 +246,21 @@ describe('OpportunityDecisionV1 - Provenance and data tier', () => {
     assert.equal(decision.dataNotes.knowledgeBaseEntryCount, 1);
   });
 
+  it('classifies PRAXON Market Knowledge without counting it as external', () => {
+    const decision = buildOpportunityDecisionV1(sampleItem({
+      evidence: [
+        sampleEvidence({
+          source: 'PRAXON Market Knowledge',
+          type: 'industry_report',
+          url: null,
+        }),
+      ],
+    }));
+    assert.equal(decision.observations[0]?.provenance, 'knowledge_base');
+    assert.equal(decision.dataNotes.externalSourceCount, 0);
+    assert.equal(decision.dataNotes.knowledgeBaseEntryCount, 1);
+  });
+
   it('unknown evidence does not increase external observed source count', () => {
     const decision = buildOpportunityDecisionV1(sampleItem({
       evidence: [sampleEvidence({ source: 'Unknown Feed', url: 'https://example.com' })],

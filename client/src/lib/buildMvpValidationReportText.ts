@@ -1,13 +1,14 @@
 import type { HotItem } from '../types/hot';
 import { buildMvpValidationPlan } from './buildMvpValidationPlan';
 import { buildOpportunityWedge } from './buildOpportunityWedge';
+import { toPublicBrandText } from './publicBrand';
 
 function pickEvidence(item: HotItem) {
   return item.evidence?.[0];
 }
 
 function textOrFallback(value: unknown, fallback: string) {
-  if (typeof value === 'string' && value.trim()) return value;
+  if (typeof value === 'string' && value.trim()) return toPublicBrandText(value);
   return fallback;
 }
 
@@ -27,7 +28,7 @@ export function buildMvpValidationReportText(item: HotItem): string {
   const wedge = buildOpportunityWedge(item);
   const evidence = pickEvidence(item);
   const evidenceStrength = evidence?.evidenceStrength ?? 'medium';
-  const evidenceSource = evidence?.source ?? '暂无明确数据';
+  const evidenceSource = toPublicBrandText(evidence?.source ?? '暂无明确数据');
   const evidenceUrl = evidence?.url ?? '暂无明确数据';
   const paymentFit = item.paymentFit ?? 'medium';
   const generatedAt = formatDateTime(Date.now());
@@ -35,7 +36,7 @@ export function buildMvpValidationReportText(item: HotItem): string {
   const nextStep = '建议先完成 7 天验证，再决定是否进入开发、投放或上架阶段。';
 
   const lines = [
-    '【HotPulse MVP 出海验证快评摘要】',
+    '【PRAXON MVP 出海验证快评摘要】',
     `生成时间：${generatedAt}`,
     '报告类型：MVP 出海验证快评',
     '数据来源说明：真实信号 / 静态市场进入知识库 / 前端运行时评分',

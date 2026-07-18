@@ -31,8 +31,8 @@ export function TopNav() {
     <header className={styles.nav}>
       <div className={styles.brandRow}>
         <div>
-          <h1 className={styles.title}>HotPulse</h1>
-          <p className={styles.subtitle}>出海企业情报站 + MVP 前市场验证系统</p>
+          <h1 className={styles.title}>PRAXON</h1>
+          <p className={styles.subtitle}>AI驱动的出海商机发现与验证系统</p>
         </div>
         <div className={styles.actions}>
           <a className={styles.ghostButton} href={withSource('/opportunities')}>查看机会雷达</a>

@@ -10,7 +10,7 @@ export type DecisionSourceType =
   | 'knowledge_base'
   | 'unknown';
 
-const KNOWLEDGE_BASE_SOURCE_PATTERN = /^hotpulse market knowledge$/i;
+const KNOWLEDGE_BASE_SOURCE_PATTERN = /^(?:hotpulse|praxon) market knowledge$/i;
 
 const OBSERVED_SOURCE_PATTERNS: Array<{ pattern: RegExp; type: DecisionSourceType }> = [
   { pattern: /^apple app store$/i, type: 'app_store' },
@@ -205,7 +205,7 @@ export function hackerNewsLimitations(hasWeakSignal: boolean): DecisionLimitatio
 export function knowledgeBaseLimitation(): DecisionLimitation {
   return {
     id: 'lim-knowledge-base-non-external',
-    statement: 'HotPulse 内部知识库用于辅助解释，不属于独立外部市场证据。',
+    statement: 'PRAXON 内部知识库用于辅助解释，不属于独立外部市场证据。',
     affectedJudgment: '外部证据独立性判断',
     category: 'knowledge_base_only',
     provenance: 'knowledge_base',

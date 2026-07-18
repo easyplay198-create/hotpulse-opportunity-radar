@@ -2,6 +2,7 @@ import type { HotItem } from '../types/hot';
 import { buildMvpValidationPlan } from '../lib/buildMvpValidationPlan';
 import { buildOpportunityWedge } from '../lib/buildOpportunityWedge';
 import { buildMvpValidationReportText } from '../lib/buildMvpValidationReportText';
+import { readMigratedStorageItem, STORAGE_KEY_MIGRATIONS } from '../lib/storageMigration';
 import { ReportHeroConclusion } from './report/ReportHeroConclusion';
 import { ReportScoreSummary } from './report/ReportScoreSummary';
 import { ReportRiskBars } from './report/ReportRiskBars';
@@ -51,9 +52,9 @@ export function OpportunityReportPreview({ item, onBack }: OpportunityReportPrev
   ];
   const handleCopy = async () => { try { await navigator.clipboard.writeText(reportText); } catch (error) { console.warn('复制验证方案失败', error); } };
   const handleBack = () => {
-    const savedScroll = Number(sessionStorage.getItem('hotpulse_return_scroll_y') || '0');
-    const savedPath = sessionStorage.getItem('hotpulse_return_path') || '/';
-    const savedItemId = sessionStorage.getItem('hotpulse_return_item_id');
+    const savedScroll = Number(readMigratedStorageItem(sessionStorage, STORAGE_KEY_MIGRATIONS.returnScrollY) || '0');
+    const savedPath = readMigratedStorageItem(sessionStorage, STORAGE_KEY_MIGRATIONS.returnPath) || '/';
+    const savedItemId = readMigratedStorageItem(sessionStorage, STORAGE_KEY_MIGRATIONS.returnItemId);
     if (window.history.length > 1) window.history.back(); else if (onBack) onBack(item.id); else window.location.href = savedPath;
     window.setTimeout(() => {
       window.scrollTo(0, savedScroll || 0);

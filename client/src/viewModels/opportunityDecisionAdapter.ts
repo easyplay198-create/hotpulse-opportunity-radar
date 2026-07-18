@@ -28,6 +28,7 @@ import {
   uniqueLimitationCategoryKey,
 } from '../lib/opportunityDecisionRules';
 import { buildAnalyzeHrefFromOpportunity } from '../lib/opportunityAnalyzeHref';
+import { toPublicBrandText } from '../lib/publicBrand';
 import { buildKeyValidationQuestions, keyQuestionsAreSafe } from '../lib/opportunityValidationQuestions';
 import { makeAction24hFallback, makeAction7dFallback, safeText, toScoreBand, verdictFromHotVerdict, type OpportunityDecisionVM, type StandardEvidenceItem, type StandardRiskItem } from './decisionViewModels';
 
@@ -124,7 +125,7 @@ function buildValueLabel(evidence: EvidenceItem, sourceType: string): string | u
 
 function buildObservationRows(item: HotItem): ObservationRow[] {
   return (item.evidence ?? []).map((evidence, index) => {
-    const sourceName = asNonEmptyString(evidence.source) ?? 'Unknown Source';
+    const sourceName = toPublicBrandText(asNonEmptyString(evidence.source) ?? 'Unknown Source');
     const sourceType = inferDecisionSourceType(evidence);
     const provenance = inferObservationProvenance(evidence);
     const sourceUrl = isValidHttpUrl(evidence.url) ? evidence.url : undefined;

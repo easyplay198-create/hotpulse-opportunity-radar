@@ -158,11 +158,16 @@ const githubEv = { source: 'GitHub', title: 'GitHub signal', metadata: { stars: 
 const hnEv = { source: 'Hacker News', title: 'HN signal', metadata: { points: 220, commentsCount: 85 } };
 const hnWeakEv = { source: 'Hacker News', title: 'HN weak', metadata: { points: 2, commentsCount: 0 } };
 const kbEv = { source: 'HotPulse Market Knowledge', title: '市场知识库条目', metadata: { knowledgeType: 'static_market_entry' } };
+const praxonKbEv = { source: 'PRAXON Market Knowledge', title: '市场知识库条目', metadata: {} };
 const kbEv2 = { source: 'SomeSource', title: '内部知识', metadata: { knowledgeType: 'internal' } };
 
 describe('Provenance-first: isKnowledgeBaseEvidence', () => {
   it('returns true for HotPulse Market Knowledge source', () => {
     assert.equal(isKnowledgeBaseEvidence(kbEv), true);
+  });
+
+  it('returns true for PRAXON Market Knowledge source', () => {
+    assert.equal(isKnowledgeBaseEvidence(praxonKbEv), true);
   });
 
   it('returns true when metadata knowledgeType is present', () => {
@@ -175,6 +180,11 @@ describe('Provenance-first: isKnowledgeBaseEvidence', () => {
 
   it('KNOWLEDGE_BASE_SOURCE_NAMES includes HotPulse Market Knowledge', () => {
     assert.equal(KNOWLEDGE_BASE_SOURCE_NAMES.has('HotPulse Market Knowledge'), true);
+    assert.equal(KNOWLEDGE_BASE_SOURCE_NAMES.has('PRAXON Market Knowledge'), true);
+  });
+
+  it('uses the PRAXON source name when displaying legacy knowledge entries', () => {
+    assert.equal(getKnowledgeBaseEntries([kbEv])[0]?.source, 'PRAXON Market Knowledge');
   });
 });
 
@@ -193,6 +203,11 @@ describe('Provenance-first: pickCardPrimarySource', () => {
   it('prefers platformId when provided', () => {
     const result = pickCardPrimarySource([appStoreEv], 'Apple App Store');
     assert.equal(result, 'Apple App Store');
+  });
+
+  it('normalizes a legacy branded platform source for display', () => {
+    const result = pickCardPrimarySource([], 'HotPulse manual seed');
+    assert.equal(result, 'PRAXON manual seed');
   });
 
   it('skips knowledge_base metadata sources', () => {
@@ -319,7 +334,7 @@ describe('Provenance-first: getKnowledgeBaseEntries', () => {
   it('returns only knowledge_base entries', () => {
     const entries = getKnowledgeBaseEntries([appStoreEv, kbEv]);
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].source, 'HotPulse Market Knowledge');
+    assert.equal(entries[0].source, 'PRAXON Market Knowledge');
   });
 
   it('knowledge_base entries never mixed with observed entries', () => {

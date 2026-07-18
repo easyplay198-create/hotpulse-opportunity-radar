@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { HotItem } from '../types/hot';
 import type { SmallTeamOpportunity } from '../lib/buildSmallTeamOpportunities';
 import {
@@ -12,6 +12,12 @@ import {
   type AdvisorWeeklyTime,
   matchAdvisorOpportunities,
 } from '../lib/matchAdvisorOpportunities';
+import {
+  clearMigratedStorageItems,
+  readMigratedJsonItem,
+  STORAGE_KEY_MIGRATIONS,
+  writeCurrentStorageItem,
+} from '../lib/storageMigration';
 import './OpportunityAdvisorPanel.css';
 
 const PRODUCT_TYPES = ['AI 工具', '内容产品', '游戏', '短剧', '语聊', '开发者工具', '其他'];
@@ -43,41 +49,46 @@ const DEFAULT_PROFILE: AdvisorProfile = {
   notes: '',
 };
 
-const ADVISOR_FORM_STORAGE_KEY = 'hotpulse_advisor_profile';
-const ADVISOR_RESULT_STORAGE_KEY = 'hotpulse_advisor_result';
-const LEGACY_ADVISOR_FORM_STORAGE_KEY = 'hotpulse.advisor.form';
-const LEGACY_ADVISOR_RESULT_STORAGE_KEY = 'hotpulse.advisor.result';
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function initialAdvisorProfile(): AdvisorProfile {
+  if (typeof window === 'undefined') return DEFAULT_PROFILE;
+  const savedProfile = readMigratedJsonItem(
+    window.localStorage,
+    STORAGE_KEY_MIGRATIONS.advisorProfile,
+    isJsonRecord,
+  );
+  return savedProfile ? { ...DEFAULT_PROFILE, ...savedProfile } as AdvisorProfile : DEFAULT_PROFILE;
+}
+
+function initialAdvisorResult(): AdvisorMatchResult | null {
+  if (typeof window === 'undefined') return null;
+  return readMigratedJsonItem(
+    window.localStorage,
+    STORAGE_KEY_MIGRATIONS.advisorResult,
+    isJsonRecord,
+  ) as unknown as AdvisorMatchResult | null;
+}
 
 export function OpportunityAdvisorPanel({ items, smallTeamOpportunities, source }: OpportunityAdvisorPanelProps) {
-  const [profile, setProfile] = useState<AdvisorProfile>(DEFAULT_PROFILE);
-  const [recommendations, setRecommendations] = useState<AdvisorMatchResult | null>(null);
+  const [profile, setProfile] = useState<AdvisorProfile>(initialAdvisorProfile);
+  const [recommendations, setRecommendations] = useState<AdvisorMatchResult | null>(initialAdvisorResult);
   const [activeStep, setActiveStep] = useState<1 | 2 | 3 | 4>(1);
   const [editing, setEditing] = useState(false);
+  const skipNextProfileWriteRef = useRef(false);
 
   useEffect(() => {
-    const savedProfile = window.localStorage.getItem(ADVISOR_FORM_STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_ADVISOR_FORM_STORAGE_KEY);
-    if (savedProfile) {
-      try {
-        setProfile((current) => ({ ...current, ...JSON.parse(savedProfile) }));
-      } catch {
-        window.localStorage.removeItem(ADVISOR_FORM_STORAGE_KEY);
-        window.localStorage.removeItem(LEGACY_ADVISOR_FORM_STORAGE_KEY);
-      }
+    if (skipNextProfileWriteRef.current) {
+      skipNextProfileWriteRef.current = false;
+      return;
     }
-
-    const savedResult = window.localStorage.getItem(ADVISOR_RESULT_STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_ADVISOR_RESULT_STORAGE_KEY);
-    if (savedResult) {
-      try {
-        setRecommendations(JSON.parse(savedResult));
-      } catch {
-        window.localStorage.removeItem(ADVISOR_RESULT_STORAGE_KEY);
-        window.localStorage.removeItem(LEGACY_ADVISOR_RESULT_STORAGE_KEY);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(ADVISOR_FORM_STORAGE_KEY, JSON.stringify(profile));
+    writeCurrentStorageItem(
+      window.localStorage,
+      STORAGE_KEY_MIGRATIONS.advisorProfile,
+      JSON.stringify(profile),
+    );
   }, [profile]);
 
   const stepLabels: Array<{ step: 1 | 2 | 3 | 4; label: string }> = [
@@ -102,16 +113,19 @@ export function OpportunityAdvisorPanel({ items, smallTeamOpportunities, source 
     setRecommendations(result);
     setEditing(false);
     setActiveStep(4);
-    window.localStorage.setItem(ADVISOR_RESULT_STORAGE_KEY, JSON.stringify(result));
+    writeCurrentStorageItem(
+      window.localStorage,
+      STORAGE_KEY_MIGRATIONS.advisorResult,
+      JSON.stringify(result),
+    );
   };
 
   const handleReset = () => {
-    setProfile(DEFAULT_PROFILE);
+    skipNextProfileWriteRef.current = true;
+    setProfile({ ...DEFAULT_PROFILE });
     setRecommendations(null);
-    window.localStorage.removeItem(ADVISOR_FORM_STORAGE_KEY);
-    window.localStorage.removeItem(ADVISOR_RESULT_STORAGE_KEY);
-    window.localStorage.removeItem(LEGACY_ADVISOR_FORM_STORAGE_KEY);
-    window.localStorage.removeItem(LEGACY_ADVISOR_RESULT_STORAGE_KEY);
+    clearMigratedStorageItems(window.localStorage, STORAGE_KEY_MIGRATIONS.advisorProfile);
+    clearMigratedStorageItems(window.localStorage, STORAGE_KEY_MIGRATIONS.advisorResult);
   };
 
   const sourceParam = source === 'real' ? 'real' : 'mock';

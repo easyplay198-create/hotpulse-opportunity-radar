@@ -1,5 +1,6 @@
 import type { EvidenceItem, EvidenceStrength, HotItem } from '../../types/hot';
 import type { OpportunityDataTier } from '../../types/opportunityDetail';
+import { toPublicBrandText } from '../../lib/publicBrand';
 export {
   buildAnalyzeHrefFromOpportunity,
   buildPublicAnalyzeQuery,
@@ -48,6 +49,7 @@ export function sortByInternalScore<T extends Pick<HotItem, 'valueScore'>>(items
 /** Source names treated as internal knowledge base, never shown as external observed. */
 export const KNOWLEDGE_BASE_SOURCE_NAMES: ReadonlySet<string> = new Set([
   'HotPulse Market Knowledge',
+  'PRAXON Market Knowledge',
 ]);
 
 /** The provenance label displayed alongside rule-derived risks on cards and drawer. */
@@ -69,16 +71,18 @@ export function isKnowledgeBaseEvidence(ev: EvidenceLike): boolean {
 
 /**
  * Returns the primary external source name for card display.
- * Filters out knowledge_base sources. Never returns "HotPulse Market Knowledge".
+ * Filters out knowledge_base sources. Never returns an internal knowledge source.
  */
 export function pickCardPrimarySource(
   evidence: EvidenceLike[],
   platformId?: string,
 ): string {
-  if (platformId?.trim()) return platformId.trim();
+  if (platformId?.trim() && !KNOWLEDGE_BASE_SOURCE_NAMES.has(platformId.trim())) {
+    return toPublicBrandText(platformId.trim());
+  }
   for (const ev of evidence) {
     if (!isKnowledgeBaseEvidence(ev) && ev.source?.trim()) {
-      return ev.source.trim();
+      return toPublicBrandText(ev.source.trim());
     }
   }
   return '';
@@ -227,7 +231,7 @@ export function getKnowledgeBaseEntries(evidence: EvidenceWithTitle[]): KBEntry[
   return evidence
     .filter((ev) => isKnowledgeBaseEvidence(ev))
     .map((ev) => ({
-      source: ev.source?.trim() || 'HotPulse Market Knowledge',
+      source: 'PRAXON Market Knowledge',
       title: ev.title?.trim() || '市场知识库',
     }));
 }
